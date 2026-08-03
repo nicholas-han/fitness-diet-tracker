@@ -1,0 +1,7 @@
+[build]
+builder = "railpack"
+buildCommand = "corepack pnpm build"
+
+[deploy]
+preDeployCommand = ["corepack pnpm db:migrate"]
+startCommand = "corepack pnpm start"
