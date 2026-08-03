@@ -1,6 +1,6 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { systemRouter } from "./_core/systemRouter";
+import { signInWithPassword } from "./_core/passwordAuth";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import {
@@ -22,9 +22,14 @@ import { WORKOUT_TEMPLATES } from "../shared/workoutTemplates";
 import { MEAL_TEMPLATES } from "../shared/mealTemplates";
 
 export const appRouter = router({
-  system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    login: publicProcedure
+      .input(z.object({ password: z.string().min(1).max(256) }))
+      .mutation(async ({ ctx, input }) => {
+        await signInWithPassword(input.password, ctx.req, ctx.res);
+        return { success: true } as const;
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });

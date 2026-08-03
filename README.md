@@ -25,7 +25,7 @@
 corepack enable
 corepack pnpm install --frozen-lockfile
 cp .env.example .env
-# 编辑 .env，至少配置 DATABASE_URL、JWT_SECRET 和登录相关变量
+# 编辑 .env，配置 DATABASE_URL、APP_PASSWORD 和 JWT_SECRET
 corepack pnpm db:migrate
 corepack pnpm dev
 ```
@@ -50,16 +50,15 @@ corepack pnpm dev
 2. 在同一项目中添加 **MySQL** 服务。
 3. 在应用服务的 Variables 中设置：
    - `DATABASE_URL=${{MySQL.MYSQL_URL}}`
-   - `JWT_SECRET`：一个长随机字符串
-   - `.env.example` 中列出的登录相关变量
+   - `APP_PASSWORD`：你自己使用的访问密码，至少 12 个字符
+   - `JWT_SECRET`：至少 32 个字符的随机字符串
+   - `APP_USER_NAME`：可选，页面显示的用户名
 4. 为应用服务生成公开域名。
 5. 首次部署会按 `railway.toml` 自动构建、执行数据库迁移并启动服务；之后每次推送 GitHub 都会重新部署。
 
-### 部署前必须处理的登录问题
+### 登录与安全
 
-当前认证来自原始 Manus 项目，依赖 Manus OAuth 的 App ID、登录门户和服务端地址。若没有这些有效配置，网页虽然能构建和启动，但无法登录，也就不能新增记录。
-
-对于只给自己使用的场景，建议下一步把 Manus OAuth 替换为简单的单用户密码登录；这样部署时只需再设置一个密码哈希或访问密码，不需要维护第三方 OAuth 应用。
+应用使用单用户密码登录，不依赖第三方 OAuth。登录成功后，服务端通过 HTTP-only、SameSite Cookie 保存签名会话；连续输错 5 次会暂时锁定该来源 15 分钟。不要把 `APP_PASSWORD`、`JWT_SECRET` 或 `DATABASE_URL` 写进代码或提交到 GitHub，只在 Railway Variables 中配置。
 
 ## 常用命令
 

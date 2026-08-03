@@ -1,10 +1,11 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { startLogin } from "@/const";
-import { Home, Dumbbell, UtensilsCrossed, History, LogOut } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Home, Dumbbell, UtensilsCrossed, History, LogOut, LockKeyhole } from "lucide-react";
 import { useLocation } from "wouter";
-import { CSSProperties } from "react";
+import { CSSProperties, FormEvent, useState } from "react";
 
 const navItems = [
   { icon: Home, label: "首页", path: "/" },
@@ -14,8 +15,14 @@ const navItems = [
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { loading, user, logout } = useAuth();
+  const { loading, user, login, loginError, loginPending, logout } = useAuth();
   const [location] = useLocation();
+  const [password, setPassword] = useState("");
+
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await login(password).catch(() => undefined);
+  };
 
   if (loading) {
     return (
@@ -41,17 +48,42 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 Fitness & Diet Tracker
               </h1>
               <p className="text-sm text-muted-foreground text-center">
-                登录后开始记录你的训练与饮食
+                输入你的个人访问密码，开始记录训练与饮食
               </p>
             </div>
           </div>
-          <Button
-            onClick={() => startLogin()}
-            size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
-          >
-            Sign in
-          </Button>
+          <form onSubmit={handleLogin} className="w-full space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="password">访问密码</Label>
+              <div className="relative">
+                <LockKeyhole className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  placeholder="请输入访问密码"
+                  className="h-11 pl-10"
+                  required
+                  autoFocus
+                />
+              </div>
+            </div>
+            {loginError ? (
+              <p role="alert" className="text-sm text-destructive text-center">
+                {loginError.message}
+              </p>
+            ) : null}
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full shadow-lg hover:shadow-xl transition-all"
+              disabled={loginPending || !password}
+            >
+              {loginPending ? "正在登录…" : "登录"}
+            </Button>
+          </form>
         </div>
       </div>
     );
