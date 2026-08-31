@@ -25,6 +25,7 @@ export interface RecoveryEntry {
   whoopRecovery?: number;
   whoopStrain?: number;
   vo2max?: number;
+  sleepConsistency?: number;
   fatigue?: number;
   soreness?: number;
   motivation?: number;
@@ -271,5 +272,18 @@ export function addDays(dateKey: string, amount: number) {
 }
 export function daysBetween(start: string, end = today()) { return Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000)); }
 export function average(values: Array<number | undefined>) { const v = values.filter((n): n is number => typeof n === "number"); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : undefined; }
-export function movingAverage(entries: BodyEntry[], days: number) { const cutoff = new Date(); cutoff.setHours(0, 0, 0, 0); cutoff.setDate(cutoff.getDate() - days + 1); return average(entries.filter(e => { const [year, month, day] = e.date.split("-").map(Number); return new Date(year, month - 1, day) >= cutoff; }).map(e => e.weight)); }
+export function rollingAverage<T extends { date: string }>(entries: T[], days: number, selector: (entry: T) => number | undefined, asOf = formatDate()) {
+  const start = addDays(asOf, -days + 1);
+  return average(entries.filter(entry => entry.date >= start && entry.date <= asOf).map(selector));
+}
+export function trendChange<T extends { date: string }>(entries: T[], days: number, selector: (entry: T) => number | undefined, asOf = formatDate()) {
+  const sorted = entries.slice().sort((a, b) => b.date.localeCompare(a.date));
+  const current = sorted.find(entry => entry.date <= asOf && selector(entry) !== undefined);
+  const baselineDate = addDays(asOf, -days);
+  const baseline = sorted.find(entry => entry.date <= baselineDate && selector(entry) !== undefined);
+  const currentValue = current ? selector(current) : undefined;
+  const baselineValue = baseline ? selector(baseline) : undefined;
+  return currentValue !== undefined && baselineValue !== undefined ? currentValue - baselineValue : undefined;
+}
+export function movingAverage(entries: BodyEntry[], days: number, asOf = formatDate()) { return rollingAverage(entries, days, entry => entry.weight, asOf); }
 export { KEY, WORKOUT_TEMPLATES };
