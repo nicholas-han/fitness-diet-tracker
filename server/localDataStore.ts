@@ -14,6 +14,8 @@ export type LocalStateRecord = {
   grocery: unknown[];
   groceryHistory: unknown[];
   mealTemplates: unknown[];
+  foods: unknown[];
+  inventory: unknown[];
   [key: string]: unknown;
 };
 
@@ -39,7 +41,7 @@ export function migrateLocalState(input: unknown): LocalStateRecord {
 
   // The first browser implementation had no version field. It has the same
   // shape, so adding version 1 is a lossless migration.
-  const arrays = ["activities", "body", "recovery", "nutrition", "grocery", "groceryHistory", "mealTemplates", "foods", "strengthPrograms", "weeklySchedule"] as const;
+  const arrays = ["activities", "body", "recovery", "nutrition", "grocery", "groceryHistory", "mealTemplates", "foods", "inventory", "strengthPrograms", "weeklySchedule"] as const;
   for (const key of arrays) {
     if (source[key] !== undefined && !Array.isArray(source[key])) {
       throw new Error(`State field ${key} must be an array`);
@@ -57,6 +59,7 @@ export function migrateLocalState(input: unknown): LocalStateRecord {
     groceryHistory: Array.isArray(source.groceryHistory) ? source.groceryHistory : [],
     mealTemplates: Array.isArray(source.mealTemplates) ? source.mealTemplates : [],
     foods: Array.isArray(source.foods) ? source.foods : [],
+    inventory: Array.isArray(source.inventory) ? source.inventory : [],
   };
 }
 
