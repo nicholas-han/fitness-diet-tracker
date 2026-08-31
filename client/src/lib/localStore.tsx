@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { MEAL_TEMPLATES } from "@shared/mealTemplates";
+import { MEAL_TEMPLATES, type MealTemplate } from "@shared/mealTemplates";
 import { WORKOUT_TEMPLATES } from "@shared/workoutTemplates";
 import { DEFAULT_STRENGTH_PROGRAMS, type CoreFocus, type StrengthProgram } from "@shared/strengthPrograms";
 import { DEFAULT_WEEKLY_SCHEDULE, type WeeklyScheduleEntry } from "@shared/trainingPlan";
@@ -91,6 +91,29 @@ export interface GroceryItem {
   notes?: string;
 }
 
+export interface FoodItem {
+  id: string;
+  name: string;
+  category: string;
+  nutritionUnit: string;
+  shoppingUnit: string;
+  caloriesPerUnit: number;
+  proteinPerUnit: number;
+  carbsPerUnit: number;
+  fatPerUnit: number;
+}
+
+export interface StandardHomeDiet {
+  chickenGrams: number;
+  eggs: number;
+  milkMl: number;
+  wheyScoops: number;
+  riceGrams: number;
+  vegetableServings: number;
+  fruitServings: number;
+  fishSubstitutionDays: number;
+}
+
 export interface FitnessState {
   version: 1;
   updatedAt?: string;
@@ -112,7 +135,9 @@ export interface FitnessState {
   nutrition: NutritionEntry[];
   grocery: GroceryItem[];
   groceryHistory: Array<{ date: string; items: GroceryItem[] }>;
-  mealTemplates: typeof MEAL_TEMPLATES;
+  mealTemplates: MealTemplate[];
+  foods: FoodItem[];
+  standardHomeDiet: StandardHomeDiet;
   strengthPrograms: StrengthProgram[];
   weeklySchedule: WeeklyScheduleEntry[];
 }
@@ -140,8 +165,25 @@ export const defaultState = (): FitnessState => ({
     nutritionTargets: { calories: 2250, protein: 145, carbs: 260, fat: 65, fruit: 2, vegetables: 4 },
     carbTargets: { low: { carbs: 180, calories: 2100 }, medium: { carbs: 260, calories: 2250 }, high: { carbs: 330, calories: 2450 } },
   },
-  activities: [], body: [], recovery: [], nutrition: [], grocery: [], groceryHistory: [], mealTemplates: MEAL_TEMPLATES, strengthPrograms: DEFAULT_STRENGTH_PROGRAMS, weeklySchedule: DEFAULT_WEEKLY_SCHEDULE,
+  activities: [], body: [], recovery: [], nutrition: [], grocery: [], groceryHistory: [], mealTemplates: MEAL_TEMPLATES, foods: defaultFoods(), standardHomeDiet: defaultHomeDiet(), strengthPrograms: DEFAULT_STRENGTH_PROGRAMS, weeklySchedule: DEFAULT_WEEKLY_SCHEDULE,
 });
+
+export function defaultFoods(): FoodItem[] {
+  return [
+    { id: "chicken-breast", name: "鸡胸肉", category: "蛋白质", nutritionUnit: "100 g 生重", shoppingUnit: "1 kg 包", caloriesPerUnit: 110, proteinPerUnit: 23, carbsPerUnit: 0, fatPerUnit: 1.5 },
+    { id: "salmon", name: "三文鱼", category: "蛋白质", nutritionUnit: "100 g", shoppingUnit: "500 g 包", caloriesPerUnit: 208, proteinPerUnit: 20, carbsPerUnit: 0, fatPerUnit: 13 },
+    { id: "egg", name: "鸡蛋", category: "蛋白质", nutritionUnit: "1 个", shoppingUnit: "12 个装", caloriesPerUnit: 78, proteinPerUnit: 6.3, carbsPerUnit: 0.6, fatPerUnit: 5.3 },
+    { id: "milk", name: "牛奶", category: "蛋白质", nutritionUnit: "100 ml", shoppingUnit: "1 L 盒", caloriesPerUnit: 61, proteinPerUnit: 3.2, carbsPerUnit: 4.8, fatPerUnit: 3.3 },
+    { id: "whey", name: "乳清蛋白", category: "蛋白质", nutritionUnit: "1 勺", shoppingUnit: "1 袋", caloriesPerUnit: 120, proteinPerUnit: 24, carbsPerUnit: 3, fatPerUnit: 2 },
+    { id: "rice", name: "白米", category: "碳水", nutritionUnit: "100 g 生重", shoppingUnit: "2 kg 袋", caloriesPerUnit: 350, proteinPerUnit: 7, carbsPerUnit: 78, fatPerUnit: 0.6 },
+    { id: "vegetables", name: "混合蔬菜", category: "蔬菜", nutritionUnit: "1 份", shoppingUnit: "按喜好采购", caloriesPerUnit: 45, proteinPerUnit: 2, carbsPerUnit: 8, fatPerUnit: 0.3 },
+    { id: "fruit", name: "水果", category: "水果", nutritionUnit: "1 份", shoppingUnit: "按喜好采购", caloriesPerUnit: 80, proteinPerUnit: 1, carbsPerUnit: 20, fatPerUnit: 0.2 },
+  ];
+}
+
+export function defaultHomeDiet(): StandardHomeDiet {
+  return { chickenGrams: 325, eggs: 3, milkMl: 500, wheyScoops: 1, riceGrams: 200, vegetableServings: 3, fruitServings: 2, fishSubstitutionDays: 2 };
+}
 
 export function normalizeState(input: Partial<FitnessState>): FitnessState {
   const base = defaultState();
@@ -149,6 +191,9 @@ export function normalizeState(input: Partial<FitnessState>): FitnessState {
     ...base,
     ...input,
     settings: { ...base.settings, ...(input.settings ?? {}) },
+    mealTemplates: input.mealTemplates?.length ? input.mealTemplates : base.mealTemplates,
+    foods: input.foods?.length ? input.foods : base.foods,
+    standardHomeDiet: { ...base.standardHomeDiet, ...(input.standardHomeDiet ?? {}) },
     strengthPrograms: input.strengthPrograms?.length ? input.strengthPrograms : base.strengthPrograms,
     weeklySchedule: input.weeklySchedule?.length ? input.weeklySchedule : base.weeklySchedule,
   };
