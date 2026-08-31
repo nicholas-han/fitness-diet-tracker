@@ -12,6 +12,11 @@ export interface WeeklyScheduleEntry {
   secondary: string;
 }
 
+export function phaseWeekForDate(phaseStarted: string, date: string, maxWeeks: number) {
+  const elapsedDays = Math.floor(Math.max(0, Date.parse(date) - Date.parse(phaseStarted)) / 86400000);
+  return Math.min(maxWeeks, Math.floor(elapsedDays / 7) + 1);
+}
+
 export const DEFAULT_WEEKLY_SCHEDULE: WeeklyScheduleEntry[] = [
   { id: "monday", dayIndex: 0, day: "周一", title: "Strength A", type: "strength", programId: "strength-a", secondary: "可选：轻松游" },
   { id: "tuesday", dayIndex: 1, day: "周二", title: "网球", type: "tennis", sessionType: "Rally", secondary: "Rally / Coaching" },

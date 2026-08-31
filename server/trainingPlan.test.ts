@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_WEEKLY_SCHEDULE } from "../shared/trainingPlan";
+import { DEFAULT_WEEKLY_SCHEDULE, phaseWeekForDate } from "../shared/trainingPlan";
 import { DEFAULT_STRENGTH_PROGRAMS, phase0RirForWeek } from "../shared/strengthPrograms";
 
 describe("P1 training plan data", () => {
@@ -12,5 +12,11 @@ describe("P1 training plan data", () => {
     expect(DEFAULT_STRENGTH_PROGRAMS.map(program => program.id)).toEqual(["strength-a", "strength-b", "strength-c"]);
     expect(phase0RirForWeek(1)).toBe("3–4");
     expect(phase0RirForWeek(3)).toBe("2–3");
+  });
+
+  it("calculates the phase week from the planned session date", () => {
+    expect(phaseWeekForDate("2026-08-03", "2026-08-03", 6)).toBe(1);
+    expect(phaseWeekForDate("2026-08-03", "2026-08-24", 6)).toBe(4);
+    expect(phaseWeekForDate("2026-08-03", "2026-10-01", 6)).toBe(6);
   });
 });

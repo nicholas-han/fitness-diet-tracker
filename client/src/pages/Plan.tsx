@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { PageHeader, Panel, Section } from "@/components/os-ui";
 import { PHASES, addDays, formatDate, startOfWeek, uid, useFitnessStore, type ActivityEntry } from "@/lib/localStore";
 import { CORE_FOCUS_LABELS, CORE_MOVEMENTS, DEFAULT_STRENGTH_PROGRAMS, SPORT_SESSION_TYPES, phase0RirForWeek, type CoreFocus, type StrengthProgram, type TrainingSessionKind } from "@shared/strengthPrograms";
-import { DEFAULT_WEEKLY_SCHEDULE, type WeeklyScheduleEntry } from "@shared/trainingPlan";
+import { DEFAULT_WEEKLY_SCHEDULE, phaseWeekForDate, type WeeklyScheduleEntry } from "@shared/trainingPlan";
 
 function plannedSets(program: StrengthProgram, targetRir: string) {
   return program.exercises.flatMap(exercise => Array.from({ length: exercise.sets }, () => ({ exercise: exercise.name, targetReps: exercise.repRange, targetRir })));
@@ -28,14 +28,15 @@ export default function Plan() {
   const phase = PHASES[state.settings.phase];
   const programs = state.strengthPrograms?.length ? state.strengthPrograms : DEFAULT_STRENGTH_PROGRAMS;
   const schedule = state.weeklySchedule?.length ? state.weeklySchedule : DEFAULT_WEEKLY_SCHEDULE;
-  const phaseWeek = Math.min(phase.weeks, Math.floor(Math.max(0, (Date.parse(formatDate()) - Date.parse(state.settings.phaseStarted)) / 86400000) / 7) + 1);
+  const phaseWeek = phaseWeekForDate(state.settings.phaseStarted, formatDate(), phase.weeks);
   const targetRir = state.settings.phase === "phase0" ? phase0RirForWeek(phaseWeek) : "2–3";
+  const targetRirForDate = (date: string) => state.settings.phase === "phase0" ? phase0RirForWeek(phaseWeekForDate(state.settings.phaseStarted, date, phase.weeks)) : "2–3";
 
   const addPlanned = (date: string, item: WeeklyScheduleEntry) => {
     const program = item.programId ? programs.find(p => p.id === item.programId) : undefined;
     update(current => ({ ...current, activities: [...current.activities, {
-      id: uid("activity"), date, type: item.type ?? "other", title: item.title, durationMin: program ? 60 : item.type === "swimming" ? 45 : 90,
-      sessionType: item.sessionType, coreFocus: item.coreFocus, completed: false, notes: item.secondary, sets: program ? plannedSets(program, targetRir) : undefined,
+      id: uid("activity"), date, type: item.type ?? "other", title: item.title, durationMin: program ? 60 : item.type === "swimming" ? 45 : item.type === "core" ? 30 : 90,
+      sessionType: item.sessionType, coreFocus: item.coreFocus, completed: false, notes: item.secondary, sets: program ? plannedSets(program, targetRirForDate(date)) : undefined,
     }] }));
   };
 
