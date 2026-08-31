@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_WEEKLY_SCHEDULE, phaseWeekForDate } from "../shared/trainingPlan";
 import { DEFAULT_STRENGTH_PROGRAMS, phase0RirForWeek } from "../shared/strengthPrograms";
+import { rollingAverage, trendChange } from "../client/src/lib/localStore";
 
 describe("P1 training plan data", () => {
   it("ships the seven-day default architecture", () => {
@@ -18,5 +19,16 @@ describe("P1 training plan data", () => {
     expect(phaseWeekForDate("2026-08-03", "2026-08-03", 6)).toBe(1);
     expect(phaseWeekForDate("2026-08-03", "2026-08-24", 6)).toBe(4);
     expect(phaseWeekForDate("2026-08-03", "2026-10-01", 6)).toBe(6);
+  });
+
+  it("calculates calendar-window recovery trends without treating missing days as zero", () => {
+    const entries = [
+      { date: "2026-08-20", value: 60 },
+      { date: "2026-08-22", value: 62 },
+      { date: "2026-08-27", value: 64 },
+      { date: "2026-08-29", value: 66 },
+    ];
+    expect(rollingAverage(entries, 7, entry => entry.value, "2026-08-29")).toBe(65);
+    expect(trendChange(entries, 7, entry => entry.value, "2026-08-29")).toBe(4);
   });
 });
