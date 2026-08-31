@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Check, Pencil, Plus, Save, ShoppingCart, Trash2, Utensils } from "lucide-react";
 import { useLocation } from "wouter";
 import { CheckRow, Empty, PageHeader, Panel, ProgressBar, Section } from "@/components/os-ui";
-import { addDays, defaultWeeklyMealPlan, foodBaseUnit, formatDate, generateGroceryList, startOfWeek, uid, useFitnessStore, type FoodItem, type GroceryItem, type InventoryItem, type StandardHomeDiet, type WeeklyMealPlan, type WeeklyMealPlanDay } from "@/lib/localStore";
+import { addDays, defaultWeeklyMealPlan, foodBaseUnit, formatDate, generateGroceryList, recalculateMealTemplate, startOfWeek, uid, useFitnessStore, type FoodItem, type GroceryItem, type InventoryItem, type StandardHomeDiet, type WeeklyMealPlan, type WeeklyMealPlanDay } from "@/lib/localStore";
 import type { IngredientDetail, MealTemplate } from "@shared/mealTemplates";
 
 const numericIngredientFields = new Set(["kcal", "protein", "carbs", "fat"]);
@@ -20,10 +20,13 @@ export default function Nutrition() {
   const [templateScales, setTemplateScales] = useState<Record<string, number>>({});
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const today = formatDate();
-  const entry = state.nutrition.find(n => n.date === today);
-  const target = state.settings.nutritionTargets;
+  const recordedEntry = state.nutrition.find(n => n.date === today);
+  const todayPlan = state.weeklyMealPlan?.dayPlans.find(day => day.date === today);
+  const carbDay = recordedEntry?.carbDay ?? state.carbDayOverrides?.[today] ?? todayPlan?.carbDay;
+  const entry = recordedEntry ?? (carbDay ? { id: "carb-day", date: today, homeMeals: 0, carbDay } : undefined);
+  const target = { ...state.settings.nutritionTargets, ...(carbDay ? state.settings.carbTargets[carbDay] : {}) };
   const currentWeek = startOfWeek();
-  const activePlan = state.weeklyMealPlan?.startDate === currentWeek ? state.weeklyMealPlan : defaultWeeklyMealPlan(currentWeek);
+  const activePlan = state.weeklyMealPlan ?? defaultWeeklyMealPlan(currentWeek);
   const items = state.grocery;
   const grouped = useMemo(() => items.reduce<Record<string, GroceryItem[]>>((acc, item) => { (acc[item.category] ??= []).push(item); return acc; }, {}), [items]);
   const homeMeals = activePlan.dayPlans.reduce((sum, day) => sum + day.homeMeals, 0);
@@ -32,8 +35,13 @@ export default function Nutrition() {
   const updateHomeDiet = (key: keyof StandardHomeDiet, value: string) => update(current => ({ ...current, standardHomeDiet: { ...current.standardHomeDiet, [key]: Number(value) || 0 } }));
   const setCarbDay = (carbDay: "low" | "medium" | "high") => update(current => {
     const existing = current.nutrition.find(item => item.date === today);
-    const next = { ...(existing ?? { id: uid("nutrition"), date: today, homeMeals: 0 }), carbDay };
-    return { ...current, nutrition: [...current.nutrition.filter(item => item.date !== today), next] };
+    const nextPlan = current.weeklyMealPlan?.dayPlans.some(day => day.date === today) ? { ...current.weeklyMealPlan, dayPlans: current.weeklyMealPlan.dayPlans.map(day => day.date === today ? { ...day, carbDay } : day) } : current.weeklyMealPlan;
+    return {
+      ...current,
+      carbDayOverrides: { ...current.carbDayOverrides, [today]: carbDay },
+      weeklyMealPlan: nextPlan,
+      nutrition: existing ? [...current.nutrition.filter(item => item.date !== today), { ...existing, carbDay }] : current.nutrition,
+    };
   });
   const updateFood = (id: string, patch: Partial<FoodItem>) => update(current => ({ ...current, foods: current.foods.map(food => food.id === id ? { ...food, ...patch } : food) }));
   const addFood = () => update(current => ({ ...current, foods: [...current.foods, { id: uid("food"), name: "新食物", category: "其他", nutritionUnit: "100 g", shoppingUnit: "按包装", shoppingPackSize: 1, shoppingPackUnit: "份", caloriesPerUnit: 0, proteinPerUnit: 0, carbsPerUnit: 0, fatPerUnit: 0 }] }));
@@ -42,8 +50,8 @@ export default function Nutrition() {
     if (template.id !== templateId) return template;
     const numeric = numericIngredientFields.has(field);
     const parsed = numeric ? Number(value) || 0 : value;
-    if (key === "hardyVeg") return { ...template, hardyVeg: template.hardyVeg.map((ingredient, ingredientIndex) => ingredientIndex === index ? { ...ingredient, [field]: parsed } : ingredient) };
-    return { ...template, [key]: { ...template[key], [field]: parsed } };
+    const next = key === "hardyVeg" ? { ...template, hardyVeg: template.hardyVeg.map((ingredient, ingredientIndex) => ingredientIndex === index ? { ...ingredient, [field]: parsed } : ingredient) } : { ...template, [key]: { ...template[key], [field]: parsed } };
+    return recalculateMealTemplate(next, template);
   }) }));
   const savePlan = (plan: WeeklyMealPlan) => update(current => ({ ...current, weeklyMealPlan: plan }));
   const updatePlanDay = (index: number, patch: Partial<WeeklyMealPlanDay>) => savePlan({ ...activePlan, dayPlans: activePlan.dayPlans.map((day, dayIndex) => dayIndex === index ? { ...day, ...patch } : day) });

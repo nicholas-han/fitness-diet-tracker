@@ -161,6 +161,7 @@ export interface FitnessState {
   body: BodyEntry[];
   recovery: RecoveryEntry[];
   nutrition: NutritionEntry[];
+  carbDayOverrides: Record<string, CarbDay>;
   grocery: GroceryItem[];
   groceryHistory: Array<{ date: string; items: GroceryItem[] }>;
   mealTemplates: MealTemplate[];
@@ -195,7 +196,7 @@ export const defaultState = (): FitnessState => ({
     nutritionTargets: { calories: 2250, protein: 145, carbs: 260, fat: 65, fruit: 2, vegetables: 4 },
     carbTargets: { low: { carbs: 180, calories: 2100 }, medium: { carbs: 260, calories: 2250 }, high: { carbs: 330, calories: 2450 } },
   },
-  activities: [], body: [], recovery: [], nutrition: [], grocery: [], groceryHistory: [], mealTemplates: MEAL_TEMPLATES, foods: defaultFoods(), standardHomeDiet: defaultHomeDiet(), weeklyMealPlan: defaultWeeklyMealPlan(), inventory: [], strengthPrograms: DEFAULT_STRENGTH_PROGRAMS, weeklySchedule: DEFAULT_WEEKLY_SCHEDULE,
+  activities: [], body: [], recovery: [], nutrition: [], carbDayOverrides: {}, grocery: [], groceryHistory: [], mealTemplates: MEAL_TEMPLATES, foods: defaultFoods(), standardHomeDiet: defaultHomeDiet(), weeklyMealPlan: defaultWeeklyMealPlan(), inventory: [], strengthPrograms: DEFAULT_STRENGTH_PROGRAMS, weeklySchedule: DEFAULT_WEEKLY_SCHEDULE,
 });
 
 export function defaultFoods(): FoodItem[] {
@@ -237,6 +238,37 @@ export function foodBaseUnit(foodId: string) {
   return "份";
 }
 
+function ingredientTotals(template: MealTemplate) {
+  return [template.rice, template.meat, template.greenVeg, ...template.hardyVeg].reduce((totals, ingredient) => ({
+    kcal: totals.kcal + ingredient.kcal,
+    protein: totals.protein + ingredient.protein,
+    carbs: totals.carbs + ingredient.carbs,
+    fat: totals.fat + ingredient.fat,
+  }), { kcal: 0, protein: 0, carbs: 0, fat: 0 });
+}
+
+export function recalculateMealTemplate(template: MealTemplate, previousTemplate: MealTemplate = template): MealTemplate {
+  const previousVisible = ingredientTotals(previousTemplate);
+  const seasoning = {
+    kcal: previousTemplate.totalKcal - previousVisible.kcal,
+    protein: previousTemplate.macros.protein - previousVisible.protein,
+    carbs: previousTemplate.macros.carbs - previousVisible.carbs,
+    fat: previousTemplate.macros.fat - previousVisible.fat,
+  };
+  const visible = ingredientTotals(template);
+  const totalKcal = Math.round(visible.kcal + seasoning.kcal);
+  return {
+    ...template,
+    totalKcal,
+    dayTotalKcal: Math.round(previousTemplate.dayTotalKcal - previousTemplate.totalKcal + totalKcal),
+    macros: {
+      protein: Math.round(visible.protein + seasoning.protein),
+      carbs: Math.round(visible.carbs + seasoning.carbs),
+      fat: Math.round(visible.fat + seasoning.fat),
+    },
+  };
+}
+
 export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDiet, plan: WeeklyMealPlan, templates: MealTemplate[], inventory: InventoryItem[] = []) {
   type Requirement = { key: string; foodId?: string; name: string; category: string; quantity: number; unit: string };
   const requirements = new Map<string, Requirement>();
@@ -252,23 +284,32 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
   const templateDays = plan.dayPlans.filter(day => effectiveHomeMeals(day) > 0 && day.templateId).map(day => ({ day, template: templates.find(template => template.id === day.templateId) })).filter((value): value is { day: WeeklyMealPlanDay; template: MealTemplate } => Boolean(value.template));
   const templateFactor = templateDays.reduce((total, value) => total + effectiveHomeMeals(value.day) / 2, 0);
   const standardFactor = Math.max(0, homeDayFactor - templateFactor);
+  const resolveFood = (ingredient: IngredientDetail) => {
+    const normalized = ingredient.name.toLowerCase();
+    return foods.find(item => normalized.includes(item.name.toLowerCase()) || item.name.toLowerCase().includes(normalized)) ?? (normalized.includes("米") ? byId("rice") : normalized.includes("鸡") ? byId("chicken-breast") : normalized.includes("三文鱼") ? byId("salmon") : undefined);
+  };
   const addTemplateIngredient = (ingredient: IngredientDetail, category: string, factor: number) => {
     const amount = amountNumber(ingredient.amount);
     if (!amount) return;
-    const normalized = ingredient.name.toLowerCase();
-    const food = foods.find(item => normalized.includes(item.name.toLowerCase()) || item.name.toLowerCase().includes(normalized)) ?? (normalized.includes("米") ? byId("rice") : normalized.includes("鸡") ? byId("chicken-breast") : normalized.includes("三文鱼") ? byId("salmon") : undefined);
+    const food = resolveFood(ingredient);
     add(food?.id, ingredient.name, food?.category ?? category, amount * factor, food ? foodBaseUnit(food.id) : "g");
   };
+  let remainingFishDays = Math.min(homeDayFactor, homeDiet.fishSubstitutionDays);
   templateDays.forEach(({ day, template }) => {
     const factor = effectiveHomeMeals(day) / 2;
     addTemplateIngredient(template.rice, "碳水", factor);
     template.hardyVeg.forEach(ingredient => addTemplateIngredient(ingredient, "蔬菜", factor));
-    addTemplateIngredient(template.meat, "蛋白质", factor);
+    const meatAmount = amountNumber(template.meat.amount);
+    const meatFood = resolveFood(template.meat);
+    const fishFactor = meatAmount && meatFood?.id === "chicken-breast" ? Math.min(factor, remainingFishDays) : 0;
+    if (fishFactor > 0 && meatAmount) add("salmon", "三文鱼", "蛋白质", meatAmount * fishFactor, "g");
+    addTemplateIngredient(template.meat, "蛋白质", factor - fishFactor);
+    remainingFishDays = Math.max(0, remainingFishDays - fishFactor);
     addTemplateIngredient(template.greenVeg, "蔬菜", factor);
   });
-  const fishDays = Math.min(homeDayFactor, homeDiet.fishSubstitutionDays);
-  add("chicken-breast", "鸡胸肉", "蛋白质", homeDiet.chickenGrams * Math.max(0, standardFactor - fishDays), "g");
-  add("salmon", "三文鱼", "蛋白质", homeDiet.chickenGrams * Math.min(standardFactor, fishDays), "g");
+  const standardFishDays = Math.min(standardFactor, remainingFishDays);
+  add("chicken-breast", "鸡胸肉", "蛋白质", homeDiet.chickenGrams * Math.max(0, standardFactor - standardFishDays), "g");
+  add("salmon", "三文鱼", "蛋白质", homeDiet.chickenGrams * standardFishDays, "g");
   add("egg", "鸡蛋", "蛋白质", homeDiet.eggs * homeDayFactor, "个");
   add("milk", "牛奶", "蛋白质", homeDiet.milkMl * homeDayFactor, "ml");
   add("whey", "乳清蛋白", "蛋白质", homeDiet.wheyScoops * homeDayFactor, "勺");
@@ -292,7 +333,8 @@ export function normalizeState(input: Partial<FitnessState>): FitnessState {
     ...input,
     settings: { ...base.settings, ...(input.settings ?? {}) },
     mealTemplates: input.mealTemplates?.length ? input.mealTemplates : base.mealTemplates,
-    foods: input.foods?.length ? input.foods.map(food => ({ ...(base.foods.find(defaultFood => defaultFood.id === food.id) ?? {}), ...food })) : base.foods,
+    foods: Array.isArray(input.foods) ? input.foods.map(food => ({ ...(base.foods.find(defaultFood => defaultFood.id === food.id) ?? {}), ...food })) : base.foods,
+    carbDayOverrides: { ...base.carbDayOverrides, ...(input.carbDayOverrides ?? {}) },
     standardHomeDiet: { ...base.standardHomeDiet, ...(input.standardHomeDiet ?? {}) },
     weeklyMealPlan: input.weeklyMealPlan?.dayPlans?.length ? input.weeklyMealPlan : base.weeklyMealPlan,
     inventory: input.inventory ?? base.inventory,
