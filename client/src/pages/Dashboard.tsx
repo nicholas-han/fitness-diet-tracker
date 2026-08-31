@@ -1,11 +1,11 @@
 import { Activity, BedDouble, CalendarDays, ChevronRight, Dumbbell, Scale, Timer, Utensils, Waves } from "lucide-react";
 import { useLocation } from "wouter";
 import { PageHeader, Section, Metric, Panel, ProgressBar } from "@/components/os-ui";
-import { PHASES, average, daysBetween, movingAverage, startOfWeek, useFitnessStore } from "@/lib/localStore";
+import { PHASES, average, daysBetween, formatDate, movingAverage, startOfWeek, useFitnessStore } from "@/lib/localStore";
 
 export default function Dashboard() {
   const { state } = useFitnessStore(); const [, go] = useLocation();
-  const today = new Date().toISOString().slice(0, 10); const week = startOfWeek();
+  const today = formatDate(); const week = startOfWeek();
   const phase = PHASES[state.settings.phase]; const weekNumber = Math.min(phase.weeks, Math.floor(daysBetween(state.settings.phaseStarted) / 7) + 1);
   const weekActivities = state.activities.filter(a => a.date >= week && a.date <= today && a.completed);
   const strength = weekActivities.filter(a => a.type === "strength").length; const swimming = weekActivities.filter(a => a.type === "swimming"); const tennis = weekActivities.filter(a => a.type === "tennis");

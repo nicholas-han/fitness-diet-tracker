@@ -5,6 +5,7 @@ export const CURRENT_DATA_VERSION = 1 as const;
 
 export type LocalStateRecord = {
   version: typeof CURRENT_DATA_VERSION;
+  updatedAt?: string;
   settings: Record<string, unknown>;
   activities: unknown[];
   body: unknown[];
@@ -74,13 +75,21 @@ export function createLocalDataStore(directory = dataDir) {
 
   const write = (input: unknown): Promise<void> => {
     const normalized = migrateLocalState(input);
-    writeQueue = writeQueue.then(async () => {
+    const operation = writeQueue.catch(() => undefined).then(async () => {
+      const existing = await read();
+      const existingTime = existing?.updatedAt ? Date.parse(existing.updatedAt) : 0;
+      const incomingTime = normalized.updatedAt ? Date.parse(normalized.updatedAt) : 0;
+      // A delayed request from another tab must not overwrite a newer state.
+      if (existing && existingTime > 0 && (incomingTime === 0 || existingTime > incomingTime)) return;
       await mkdir(directory, { recursive: true });
       const temporaryFile = `${file}.${process.pid}.tmp`;
       await writeFile(temporaryFile, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
       await rename(temporaryFile, file);
     });
-    return writeQueue;
+    // Keep the queue usable after this operation rejects, while returning the
+    // rejection to this caller so the API can report the failed write.
+    writeQueue = operation.catch(() => undefined);
+    return operation;
   };
 
   return { file, read, write };

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MEAL_TEMPLATES } from "@shared/mealTemplates";
 import { WORKOUT_TEMPLATES } from "@shared/workoutTemplates";
 
@@ -34,7 +34,7 @@ export interface RecoveryEntry {
 export interface ActivityEntry {
   id: string;
   date: string;
-  type: "strength" | "swimming" | "tennis" | "boxing" | "other";
+  type: "strength" | "swimming" | "running" | "cycling" | "tennis" | "boxing" | "core" | "other";
   title: string;
   durationMin: number;
   rpe?: number;
@@ -76,6 +76,7 @@ export interface GroceryItem {
 
 export interface FitnessState {
   version: 1;
+  updatedAt?: string;
   settings: {
     name: string;
     heightCm: number;
@@ -98,7 +99,7 @@ export interface FitnessState {
 }
 
 const KEY = "personal-fitness-os:v1";
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => formatDate(new Date());
 let persistQueue = Promise.resolve();
 
 export const PHASES: Record<PhaseId, { label: string; subtitle: string; weeks: number }> = {
@@ -134,9 +135,20 @@ function load(): FitnessState {
 }
 
 export function useFitnessStore() {
+  const store = useContext(FitnessStoreContext);
+  if (!store) throw new Error("useFitnessStore must be used inside FitnessStoreProvider");
+  return store;
+}
+
+type FitnessStore = ReturnType<typeof useFitnessStoreState>;
+const FitnessStoreContext = createContext<FitnessStore | null>(null);
+
+function useFitnessStoreState() {
   const [state, setState] = useState<FitnessState>(load);
   const [hydrated, setHydrated] = useState(false);
   const [fileBacked, setFileBacked] = useState(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // The filesystem API is the source of truth in local development. The
   // browser copy is retained as a fallback and migrates into the file once.
@@ -151,21 +163,31 @@ export function useFitnessStore() {
       .then(async payload => {
         if (!active) return;
         setFileBacked(true);
-        if (payload.state?.version === 1) {
-          setState(payload.state);
-        } else if (browserCopy) {
-          const migrated = JSON.parse(browserCopy) as FitnessState;
-          if (migrated.version === 1) {
-            setState(migrated);
-            await fetch("/api/local-state", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(migrated) });
+        const serverState = payload.state?.version === 1 ? payload.state : null;
+        const browserState = browserCopy ? (() => {
+          try { const parsed = JSON.parse(browserCopy) as FitnessState; return parsed.version === 1 ? parsed : null; } catch { return null; }
+        })() : null;
+        const currentState = stateRef.current;
+        const serverTime = serverState?.updatedAt ? Date.parse(serverState.updatedAt) : 0;
+        const browserTime = browserState?.updatedAt ? Date.parse(browserState.updatedAt) : 0;
+        const currentTime = currentState.updatedAt ? Date.parse(currentState.updatedAt) : 0;
+
+        if (serverState && serverTime >= Math.max(browserTime, currentTime)) {
+          setState(serverState);
+        } else if (browserState && browserTime >= currentTime) {
+          setState(browserState);
+          if (!serverState || browserTime > serverTime) {
+            await fetch("/api/local-state", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(browserState) });
           }
+        } else if (!serverState && !browserState) {
+          setState(currentState);
         }
       })
       .catch(() => {
         if (!active || !browserCopy) return;
         try {
           const fallback = JSON.parse(browserCopy) as FitnessState;
-          if (fallback.version === 1) setState(fallback);
+          if (fallback.version === 1 && (!stateRef.current.updatedAt || !fallback.updatedAt || Date.parse(fallback.updatedAt) >= Date.parse(stateRef.current.updatedAt))) setState(fallback);
         } catch { /* Ignore an invalid browser fallback. */ }
       })
       .finally(() => { if (active) setHydrated(true); });
@@ -184,7 +206,7 @@ export function useFitnessStore() {
       } catch { /* Static hosting uses localStorage fallback. */ }
     });
   }, [state, hydrated]);
-  const update = useCallback((fn: (current: FitnessState) => FitnessState) => setState(current => fn(current)), []);
+  const update = useCallback((fn: (current: FitnessState) => FitnessState) => setState(current => ({ ...fn(current), updatedAt: new Date().toISOString() })), []);
   const add = useCallback(<K extends keyof FitnessState>(key: K, value: FitnessState[K] extends Array<infer I> ? I : never) => {
     update(current => ({ ...current, [key]: [...(current[key] as unknown as unknown[]), value] } as FitnessState));
   }, [update]);
@@ -196,17 +218,29 @@ export function useFitnessStore() {
     const raw = JSON.parse(json) as Partial<FitnessState>;
     if (!raw || typeof raw !== "object" || !raw.settings) throw new Error("不支持的备份文件");
     const incoming = { ...raw, version: 1 as const } as FitnessState;
-    setState(current => ({ ...defaultState(), ...current, ...incoming, settings: { ...defaultState().settings, ...incoming.settings } }));
+    setState(current => ({ ...defaultState(), ...current, ...incoming, updatedAt: new Date().toISOString(), settings: { ...defaultState().settings, ...incoming.settings } }));
   }, []);
   return useMemo(() => ({ state, setState, update, add, remove, exportData, importData, hydrated, fileBacked }), [state, update, add, remove, exportData, importData, hydrated, fileBacked]);
 }
 
+export function FitnessStoreProvider({ children }: { children: ReactNode }) {
+  const store = useFitnessStoreState();
+  return <FitnessStoreContext.Provider value={store}>{children}</FitnessStoreContext.Provider>;
+}
+
 export function uid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
-export function formatDate(date = today()) { return date; }
+export function formatDate(date: Date | string = new Date()) {
+  if (typeof date === "string") return date;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 export function startOfWeek(date = new Date()) {
-  const d = new Date(date); const day = d.getDay(); d.setDate(d.getDate() - (day === 0 ? 6 : day - 1)); return d.toISOString().slice(0, 10);
+  const d = new Date(date); const day = d.getDay(); d.setDate(d.getDate() - (day === 0 ? 6 : day - 1)); return formatDate(d);
+}
+export function addDays(dateKey: string, amount: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(year, month - 1, day); date.setDate(date.getDate() + amount); return formatDate(date);
 }
 export function daysBetween(start: string, end = today()) { return Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000)); }
 export function average(values: Array<number | undefined>) { const v = values.filter((n): n is number => typeof n === "number"); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : undefined; }
-export function movingAverage(entries: BodyEntry[], days: number) { const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days + 1); return average(entries.filter(e => new Date(e.date) >= cutoff).map(e => e.weight)); }
+export function movingAverage(entries: BodyEntry[], days: number) { const cutoff = new Date(); cutoff.setHours(0, 0, 0, 0); cutoff.setDate(cutoff.getDate() - days + 1); return average(entries.filter(e => { const [year, month, day] = e.date.split("-").map(Number); return new Date(year, month - 1, day) >= cutoff; }).map(e => e.weight)); }
 export { KEY, WORKOUT_TEMPLATES };

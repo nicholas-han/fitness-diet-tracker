@@ -79,7 +79,8 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, "127.0.0.1", () => {
+  const host = process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1";
+  server.listen(port, host, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
 }

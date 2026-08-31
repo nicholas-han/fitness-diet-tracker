@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Check, ClipboardList, ShoppingCart, Utensils } from "lucide-react";
 import { PageHeader, Panel, Section, ProgressBar, CheckRow } from "@/components/os-ui";
-import { uid, useFitnessStore, type GroceryItem } from "@/lib/localStore";
+import { formatDate, uid, useFitnessStore, type GroceryItem } from "@/lib/localStore";
 
 const foodDefaults: GroceryItem[] = [
   { id: uid("grocery"), category: "蛋白质", name: "鸡胸肉", required: 2100, unit: "g", purchase: "3 × 1 kg 包", checked: false },
@@ -15,7 +15,7 @@ const foodDefaults: GroceryItem[] = [
 
 export default function Nutrition() {
   const { state, update } = useFitnessStore(); const [tab, setTab] = useState<"today" | "templates" | "weekly" | "grocery">("today");
-  const today = new Date().toISOString().slice(0, 10); const entry = state.nutrition.find(n => n.date === today); const target = state.settings.nutritionTargets; const items = state.grocery.length ? state.grocery : foodDefaults;
+  const today = formatDate(); const entry = state.nutrition.find(n => n.date === today); const target = state.settings.nutritionTargets; const items = state.grocery.length ? state.grocery : foodDefaults;
   const grouped = useMemo(() => items.reduce<Record<string, GroceryItem[]>>((acc, item) => { (acc[item.category] ??= []).push(item); return acc; }, {}), [items]);
   const generate = () => update(s => ({ ...s, grocery: foodDefaults.map(i => ({ ...i, id: uid("grocery") })) }));
   return <div className="pb-10"><PageHeader eyebrow="Nutrition" title="饮食与购物" description="模板化重复决策，把目标转成今天能执行的食物和清单。" />
