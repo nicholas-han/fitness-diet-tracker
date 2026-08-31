@@ -1,0 +1,14 @@
+import { ReactNode } from "react";
+import { ArrowUpRight, Check, Circle } from "lucide-react";
+
+export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) {
+  return <header className="flex items-start justify-between gap-4 py-7"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">{eyebrow}</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">{title}</h1>{description && <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{description}</p>}</div>{action}</header>;
+}
+export function Section({ title, meta, children }: { title: string; meta?: ReactNode; children: ReactNode }) {
+  return <section className="space-y-3"><div className="flex items-center justify-between"><h2 className="text-base font-semibold">{title}</h2>{meta && <span className="text-xs text-muted-foreground">{meta}</span>}</div>{children}</section>;
+}
+export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) { return <div className={`rounded-lg border border-border/70 bg-card p-4 shadow-sm ${className}`}>{children}</div>; }
+export function Metric({ label, value, detail, tone = "default" }: { label: string; value: ReactNode; detail?: ReactNode; tone?: "default" | "positive" | "warning" }) { const color = tone === "positive" ? "text-emerald-500" : tone === "warning" ? "text-amber-500" : "text-foreground"; return <Panel><p className="text-xs text-muted-foreground">{label}</p><p className={`mt-1 text-2xl font-semibold tabular-nums ${color}`}>{value}</p>{detail && <p className="mt-1 text-xs text-muted-foreground">{detail}</p>}</Panel>; }
+export function ProgressBar({ value, max, tone = "bg-primary" }: { value: number; max: number; tone?: string }) { return <div className="h-2 overflow-hidden rounded-full bg-muted"><div className={`h-full ${tone}`} style={{ width: `${Math.min(100, Math.max(0, max ? value / max * 100 : 0))}%` }} /></div>; }
+export function Empty({ children }: { children: ReactNode }) { return <Panel className="flex flex-col items-center justify-center py-10 text-center"><Circle className="mb-3 h-8 w-8 text-muted-foreground/40" />{children}</Panel>; }
+export function CheckRow({ checked, onChange, children }: { checked: boolean; onChange: () => void; children: ReactNode }) { return <button onClick={onChange} className="flex w-full items-center gap-3 border-b border-border/50 py-3 text-left last:border-0"><span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${checked ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>{checked && <Check className="h-3.5 w-3.5" />}</span><span className={checked ? "text-muted-foreground line-through" : ""}>{children}</span><ArrowUpRight className="ml-auto h-4 w-4 text-muted-foreground/60" /></button>; }
