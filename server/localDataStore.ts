@@ -39,7 +39,7 @@ export function migrateLocalState(input: unknown): LocalStateRecord {
 
   // The first browser implementation had no version field. It has the same
   // shape, so adding version 1 is a lossless migration.
-  const arrays = ["activities", "body", "recovery", "nutrition", "grocery", "groceryHistory", "mealTemplates"] as const;
+  const arrays = ["activities", "body", "recovery", "nutrition", "grocery", "groceryHistory", "mealTemplates", "strengthPrograms", "weeklySchedule"] as const;
   for (const key of arrays) {
     if (source[key] !== undefined && !Array.isArray(source[key])) {
       throw new Error(`State field ${key} must be an array`);
