@@ -8,6 +8,10 @@ export interface StrengthExercise {
   category: "compound" | "accessory" | "core";
 }
 
+export function phase0RirForWeek(weekNumber: number) {
+  return weekNumber <= 2 ? "3–4" : "2–3";
+}
+
 export interface StrengthProgram {
   id: "strength-a" | "strength-b" | "strength-c";
   title: string;
@@ -15,7 +19,7 @@ export interface StrengthProgram {
   exercises: StrengthExercise[];
 }
 
-const phase0Rir = "3–4";
+const phase0Rir = phase0RirForWeek(1);
 
 export const DEFAULT_STRENGTH_PROGRAMS: StrengthProgram[] = [
   {
@@ -64,4 +68,20 @@ export const SPORT_SESSION_TYPES: Record<TrainingSessionKind, string[]> = {
   swimming: ["Easy aerobic", "Technique", "Interval", "Recovery"],
   tennis: ["Rally", "Coaching", "Serve Practice", "Match", "Mixed"],
   boxing: ["Coaching", "Bag", "Other"],
+};
+
+export type CoreFocus = "flexion" | "anti-extension" | "anti-rotation" | "rotation";
+
+export const CORE_FOCUS_LABELS: Record<CoreFocus, string> = {
+  flexion: "屈曲",
+  "anti-extension": "抗伸展",
+  "anti-rotation": "抗旋转",
+  rotation: "旋转 / 旋转爆发",
+};
+
+export const CORE_MOVEMENTS: Record<CoreFocus, { name: string; targetReps: string }[]> = {
+  flexion: [{ name: "绳索卷腹", targetReps: "8–15" }, { name: "悬垂举膝", targetReps: "8–15" }],
+  "anti-extension": [{ name: "健腹轮", targetReps: "8–12" }, { name: "死虫式", targetReps: "10–12 / 侧" }],
+  "anti-rotation": [{ name: "Pallof Press", targetReps: "8–12 / 侧" }, { name: "侧支撑", targetReps: "30–45 秒 / 侧" }],
+  rotation: [{ name: "Cable Chop", targetReps: "8–12 / 侧" }, { name: "药球旋转", targetReps: "8–10 / 侧" }],
 };

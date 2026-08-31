@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MEAL_TEMPLATES } from "@shared/mealTemplates";
 import { WORKOUT_TEMPLATES } from "@shared/workoutTemplates";
-import { DEFAULT_STRENGTH_PROGRAMS, type StrengthProgram } from "@shared/strengthPrograms";
+import { DEFAULT_STRENGTH_PROGRAMS, type CoreFocus, type StrengthProgram } from "@shared/strengthPrograms";
 
 export type PhaseId = "phase0" | "phase1" | "phase2";
 export type CarbDay = "low" | "medium" | "high";
@@ -43,6 +43,7 @@ export interface ActivityEntry {
   strokeComposition?: string;
   freestyleM?: number;
   longestFreestyleM?: number;
+  coreFocus?: CoreFocus;
   sessionType?: string;
   completed: boolean;
   notes?: string;
@@ -55,6 +56,7 @@ export interface ActivitySet {
   reps?: number;
   rir?: number;
   targetReps?: string;
+  targetRir?: string;
   notes?: string;
 }
 
