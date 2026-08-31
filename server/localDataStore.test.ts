@@ -35,6 +35,7 @@ describe("local data store", () => {
   it("rejects unsupported versions and malformed collection fields", async () => {
     expect(() => migrateLocalState({ version: 2, settings: {} })).toThrow("Unsupported state version");
     expect(() => migrateLocalState({ version: 1, settings: {}, body: {} })).toThrow("body must be an array");
+    expect(() => migrateLocalState({ version: 1, settings: {}, weeklySchedule: {} })).toThrow("weeklySchedule must be an array");
     const store = await makeStore();
     await expect(store.write({ version: 1, settings: {} })).resolves.toBeUndefined();
   });

@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MEAL_TEMPLATES } from "@shared/mealTemplates";
 import { WORKOUT_TEMPLATES } from "@shared/workoutTemplates";
+import { DEFAULT_STRENGTH_PROGRAMS, type CoreFocus, type StrengthProgram } from "@shared/strengthPrograms";
+import { DEFAULT_WEEKLY_SCHEDULE, type WeeklyScheduleEntry } from "@shared/trainingPlan";
 
 export type PhaseId = "phase0" | "phase1" | "phase2";
 export type CarbDay = "low" | "medium" | "high";
@@ -34,23 +36,37 @@ export interface RecoveryEntry {
 export interface ActivityEntry {
   id: string;
   date: string;
-  type: "strength" | "swimming" | "running" | "cycling" | "tennis" | "boxing" | "core" | "other";
+  type: WeeklyScheduleEntry["type"];
   title: string;
   durationMin: number;
   rpe?: number;
   distanceM?: number;
+  strokeComposition?: string;
   freestyleM?: number;
   longestFreestyleM?: number;
+  coreFocus?: CoreFocus;
   sessionType?: string;
   completed: boolean;
   notes?: string;
-  sets?: Array<{ exercise: string; weight?: number; reps?: number; rir?: number }>;
+  sets?: ActivitySet[];
+}
+
+export interface ActivitySet {
+  exercise: string;
+  weight?: number;
+  reps?: number;
+  rir?: number;
+  targetReps?: string;
+  targetRir?: string;
+  notes?: string;
 }
 
 export interface NutritionEntry {
   id: string;
   date: string;
+  homeDietUsed?: boolean;
   templateId?: string;
+  modifications?: string;
   homeMeals: number;
   socialMeal?: { type?: string; size?: string; highFat?: boolean; alcohol?: boolean; notes?: string };
   calories?: number;
@@ -96,6 +112,8 @@ export interface FitnessState {
   grocery: GroceryItem[];
   groceryHistory: Array<{ date: string; items: GroceryItem[] }>;
   mealTemplates: typeof MEAL_TEMPLATES;
+  strengthPrograms: StrengthProgram[];
+  weeklySchedule: WeeklyScheduleEntry[];
 }
 
 const KEY = "personal-fitness-os:v1";
@@ -121,8 +139,19 @@ export const defaultState = (): FitnessState => ({
     nutritionTargets: { calories: 2250, protein: 145, carbs: 260, fat: 65, fruit: 2, vegetables: 4 },
     carbTargets: { low: { carbs: 180, calories: 2100 }, medium: { carbs: 260, calories: 2250 }, high: { carbs: 330, calories: 2450 } },
   },
-  activities: [], body: [], recovery: [], nutrition: [], grocery: [], groceryHistory: [], mealTemplates: MEAL_TEMPLATES,
+  activities: [], body: [], recovery: [], nutrition: [], grocery: [], groceryHistory: [], mealTemplates: MEAL_TEMPLATES, strengthPrograms: DEFAULT_STRENGTH_PROGRAMS, weeklySchedule: DEFAULT_WEEKLY_SCHEDULE,
 });
+
+export function normalizeState(input: Partial<FitnessState>): FitnessState {
+  const base = defaultState();
+  return {
+    ...base,
+    ...input,
+    settings: { ...base.settings, ...(input.settings ?? {}) },
+    strengthPrograms: input.strengthPrograms?.length ? input.strengthPrograms : base.strengthPrograms,
+    weeklySchedule: input.weeklySchedule?.length ? input.weeklySchedule : base.weeklySchedule,
+  };
+}
 
 function load(): FitnessState {
   if (typeof window === "undefined") return defaultState();
@@ -130,7 +159,7 @@ function load(): FitnessState {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw) as Partial<FitnessState>;
-    return { ...defaultState(), ...parsed, settings: { ...defaultState().settings, ...(parsed.settings ?? {}) } };
+    return normalizeState(parsed);
   } catch { return defaultState(); }
 }
 
@@ -163,9 +192,9 @@ function useFitnessStoreState() {
       .then(async payload => {
         if (!active) return;
         setFileBacked(true);
-        const serverState = payload.state?.version === 1 ? payload.state : null;
+        const serverState = payload.state?.version === 1 ? normalizeState(payload.state) : null;
         const browserState = browserCopy ? (() => {
-          try { const parsed = JSON.parse(browserCopy) as FitnessState; return parsed.version === 1 ? parsed : null; } catch { return null; }
+          try { const parsed = JSON.parse(browserCopy) as FitnessState; return parsed.version === 1 ? normalizeState(parsed) : null; } catch { return null; }
         })() : null;
         const currentState = stateRef.current;
         const serverTime = serverState?.updatedAt ? Date.parse(serverState.updatedAt) : 0;
@@ -186,7 +215,7 @@ function useFitnessStoreState() {
       .catch(() => {
         if (!active || !browserCopy) return;
         try {
-          const fallback = JSON.parse(browserCopy) as FitnessState;
+          const fallback = normalizeState(JSON.parse(browserCopy) as FitnessState);
           if (fallback.version === 1 && (!stateRef.current.updatedAt || !fallback.updatedAt || Date.parse(fallback.updatedAt) >= Date.parse(stateRef.current.updatedAt))) setState(fallback);
         } catch { /* Ignore an invalid browser fallback. */ }
       })
