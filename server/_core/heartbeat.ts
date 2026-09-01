@@ -62,8 +62,7 @@ const buildEndpoint = (rpc: string): string => {
 
 const callForge = async <T>(
   rpc: string,
-  body: Record<string, unknown>,
-  userSession: string
+  body: Record<string, unknown>
 ): Promise<T> => {
   const endpoint = buildEndpoint(rpc);
   const headers: Record<string, string> = {
@@ -72,12 +71,6 @@ const callForge = async <T>(
     "content-type": "application/json",
     "connect-protocol-version": "1",
   };
-  // userSession is the decoded `app_session_id` cookie value (NOT the raw
-  // Cookie header). Empty string falls back to the project owner identity.
-  if (userSession) {
-    headers["x-manus-user-session"] = userSession;
-  }
-
   let response: Response;
   try {
     response = await fetch(endpoint, {
@@ -138,8 +131,7 @@ const validateCallbackPath = (path: string): void => {
  * your business row so callbacks can dereference it.
  */
 export async function createHeartbeatJob(
-  job: HeartbeatJob,
-  userSession: string
+  job: HeartbeatJob
 ): Promise<{ taskUid: string; nextExecutionAt?: string | null }> {
   validateCallbackPath(job.path);
   return callForge<{ taskUid: string; nextExecutionAt?: string | null }>(
@@ -151,8 +143,7 @@ export async function createHeartbeatJob(
       callbackMethod: job.method ?? "POST",
       callbackPayload: stringifyPayload(job.payload),
       description: job.description ?? "",
-    },
-    userSession
+    }
   );
 }
 
@@ -162,8 +153,7 @@ export async function createHeartbeatJob(
  */
 export async function updateHeartbeatJob(
   taskUid: string,
-  patch: HeartbeatJobUpdate,
-  userSession: string
+  patch: HeartbeatJobUpdate
 ): Promise<{ nextExecutionAt?: string | null }> {
   if (patch.path !== undefined) validateCallbackPath(patch.path);
   const body: Record<string, unknown> = { taskUid };
@@ -177,29 +167,21 @@ export async function updateHeartbeatJob(
   if (patch.enable !== undefined) body.enable = patch.enable;
   return callForge<{ nextExecutionAt?: string | null }>(
     "UpdateHeartbeatJob",
-    body,
-    userSession
+    body
   );
 }
 
 /** Delete a cron located by `taskUid`. Idempotent on caller side. */
 export async function deleteHeartbeatJob(
-  taskUid: string,
-  userSession: string
+  taskUid: string
 ): Promise<void> {
-  await callForge("DeleteHeartbeatJob", { taskUid }, userSession);
+  await callForge("DeleteHeartbeatJob", { taskUid });
 }
 
 /**
- * List cron jobs owned by the resolved actor (end-user when `userSession`
- * is set, project owner otherwise) within the current project.
- *
- * `actorUserId` in the response echoes whose cron list you got back. End-users
- * cannot list other users' crons via this SDK; cross-user inspection is
- * owner-only via the sandbox CLI (`manus-heartbeat list --user-id <uid>`).
+ * List cron jobs owned by the current project.
  */
 export async function listHeartbeatJobs(
-  userSession: string,
   pagination?: { page?: number; pageSize?: number }
 ): Promise<{ total: number; actorUserId: string; jobs: HeartbeatJobInfo[] }> {
   const body: Record<string, unknown> = {};
@@ -209,5 +191,5 @@ export async function listHeartbeatJobs(
     total: number;
     actorUserId: string;
     jobs: HeartbeatJobInfo[];
-  }>("ListHeartbeatJobs", body, userSession);
+  }>("ListHeartbeatJobs", body);
 }

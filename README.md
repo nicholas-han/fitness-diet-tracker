@@ -17,7 +17,7 @@
 - React 19 + Vite
 - Tailwind CSS + shadcn/ui primitives
 - TypeScript + Vitest
-- 服务端代码仍保留在 `server/`，用于兼容已有测试和后续扩展；V1 产品入口不依赖它
+- `server/` 仅提供本地 JSON 文件 API 和 Express/Vite 开发服务；V1 不需要账号、数据库或远程 API
 
 ## 本地运行
 
@@ -39,7 +39,7 @@ corepack pnpm dev
 - `data/`、`personal-data/`、`exports/`、`backups/`
 - SQLite 文件、SQL dump 和数据库备份
 
-`drizzle/` 和 `server/` 中的是旧版远端持久化兼容代码，不是 V1 前端运行时的必需依赖。
+仓库中保留的 `drizzle/` 迁移文件仅用于历史参考，不参与 V1 运行时；密码登录、JWT 会话和远端训练/饮食 API 已移除。
 
 ## 后续部署
 
@@ -53,5 +53,4 @@ V1 前端可以部署到任意静态托管（例如 Vercel、Netlify、GitHub Pa
 corepack pnpm check       # TypeScript 类型检查
 corepack pnpm test        # 单元测试
 corepack pnpm build       # 生产构建
-corepack pnpm db:migrate  # 执行数据库迁移
 ```

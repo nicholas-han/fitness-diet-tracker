@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MEAL_TEMPLATES } from "@shared/mealTemplates";
-import { defaultFoods, defaultHomeDiet, defaultWeeklyMealPlan, generateGroceryList, normalizeState, recalculateMealTemplate } from "../client/src/lib/localStore";
+import { defaultFoods, defaultHomeDiet, defaultState, defaultWeeklyMealPlan, generateGroceryList, normalizeState, recalculateMealTemplate, summarizeReview } from "../client/src/lib/localStore";
 
 describe("nutrition and grocery planning", () => {
   it("ships an editable food catalog with separate nutrition and shopping units", () => {
@@ -50,5 +50,26 @@ describe("nutrition and grocery planning", () => {
   it("applies fish substitutions even when every day uses a meal template", () => {
     const list = generateGroceryList(defaultFoods(), defaultHomeDiet(), defaultWeeklyMealPlan("2026-08-31"), MEAL_TEMPLATES);
     expect(list.find(item => item.foodId === "salmon")?.required).toBeGreaterThan(0);
+  });
+
+  it("uses template scaling, carb targets, and configurable fish substitutions", () => {
+    const plan = { ...defaultWeeklyMealPlan("2026-08-31"), days: 1, dayPlans: [{ date: "2026-08-31", carbDay: "high" as const, homeMeals: 2, socialMeals: 0, templateId: MEAL_TEMPLATES[0].id, templateScale: 2 }] };
+    const foods = [...defaultFoods(), { id: "mackerel", name: "鲭鱼", category: "蛋白质", nutritionUnit: "100 g", shoppingUnit: "500 g 包", shoppingPackSize: 500, shoppingPackUnit: "g", caloriesPerUnit: 200, proteinPerUnit: 20, carbsPerUnit: 0, fatPerUnit: 12 }];
+    const list = generateGroceryList(foods, defaultHomeDiet(), plan, MEAL_TEMPLATES, [], { carbTargets: { low: { carbs: 180, calories: 2100 }, medium: { carbs: 260, calories: 2250 }, high: { carbs: 390, calories: 2600 } }, substitutionRules: { daysPerWeek: 1, foodIds: ["mackerel"] } });
+    expect(list.find(item => item.foodId === "mackerel")?.required).toBeGreaterThan(0);
+    expect(list.find(item => item.foodId === "rice")?.required).toBe(600);
+    expect(list.find(item => item.foodId === "chicken-breast")?.required ?? 0).toBe(0);
+  });
+
+  it("summarizes review trends and adherence deterministically", () => {
+    const state = defaultState();
+    state.activities = [{ id: "a1", date: "2026-08-31", weeklyTaskId: "monday", planWeek: "2026-08-31", type: "strength", title: "Strength A", durationMin: 60, completed: true, sets: [{ exercise: "深蹲", weight: 80, reps: 8 }] }];
+    state.body = [{ id: "b1", date: "2026-08-25", weight: 80, waist: 90 }, { id: "b2", date: "2026-08-31", weight: 79, waist: 89 }];
+    state.nutrition = [{ id: "n1", date: "2026-08-31", homeMeals: 2, protein: 150, calories: 2200, carbs: 250, fat: 60, fruitServings: 2, vegetableServings: 4, carbDay: "medium" }];
+    const summary = summarizeReview(state, "2026-08-25", "2026-08-31");
+    expect(summary.body.weightTrend).toBe(-1);
+    expect(summary.body.waistTrend).toBe(-1);
+    expect(summary.nutrition.proteinAdherence).toBe(100);
+    expect(summary.training.completed).toBe(1);
   });
 });

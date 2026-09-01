@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_WEEKLY_SCHEDULE, phaseWeekForDate } from "../shared/trainingPlan";
 import { DEFAULT_STRENGTH_PROGRAMS, phase0RirForWeek } from "../shared/strengthPrograms";
-import { rollingAverage, trendChange } from "../client/src/lib/localStore";
+import { normalizeState, rollingAverage, trendChange } from "../client/src/lib/localStore";
 
 describe("P1 training plan data", () => {
   it("ships the seven-day default architecture", () => {
@@ -30,5 +30,10 @@ describe("P1 training plan data", () => {
     ];
     expect(rollingAverage(entries, 7, entry => entry.value, "2026-08-29")).toBe(65);
     expect(trendChange(entries, 7, entry => entry.value, "2026-08-29")).toBe(4);
+  });
+
+  it("preserves weekly task claims independently from the suggested day", () => {
+    const state = normalizeState({ version: 1, activities: [{ id: "claim-1", date: "2026-09-02", weeklyTaskId: "friday", planWeek: "2026-08-31", claimedAt: "2026-09-01T08:00:00.000Z", type: "tennis", title: "网球", durationMin: 90, completed: false }] } as any);
+    expect(state.activities[0]).toMatchObject({ weeklyTaskId: "friday", planWeek: "2026-08-31", date: "2026-09-02" });
   });
 });
