@@ -250,6 +250,11 @@ export function foodBaseUnit(foodId: string) {
   return "份";
 }
 
+function proteinPerBaseUnit(food: FoodItem) {
+  const unit = foodBaseUnit(food.id);
+  return unit === "g" || unit === "ml" ? food.proteinPerUnit / 100 : food.proteinPerUnit;
+}
+
 function ingredientTotals(template: MealTemplate) {
   return [template.rice, template.meat, template.greenVeg, ...template.hardyVeg].reduce((totals, ingredient) => ({
     kcal: totals.kcal + ingredient.kcal,
@@ -323,6 +328,19 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
     add(food?.id, ingredient.name, food?.category ?? category, amount * factor * templateScale * carbMultiplier * proteinMultiplier, food ? foodBaseUnit(food.id) : "g");
   };
   const substitution = options.substitutionRules ?? { daysPerWeek: homeDiet.fishSubstitutionDays, foodIds: ["salmon"] };
+  const substitutionFoods = substitution.foodIds.map(byId).filter((food): food is FoodItem => Boolean(food && food.category === "蛋白质" && food.id !== "chicken-breast" && proteinPerBaseUnit(food) > 0));
+  if (!substitutionFoods.length) {
+    const salmon = byId("salmon");
+    if (salmon) substitutionFoods.push(salmon);
+  }
+  const nextSubstitutionFood = () => substitutionFoods[substitutionIndex++ % substitutionFoods.length];
+  const addEquivalentProtein = (sourceFood: FoodItem | undefined, sourceAmount: number, targetFood: FoodItem, factor: number) => {
+    const sourceProtein = sourceFood ? proteinPerBaseUnit(sourceFood) : 0;
+    const targetProtein = proteinPerBaseUnit(targetFood);
+    const sourceQuantity = sourceAmount * factor * proteinFactor;
+    const quantity = sourceProtein > 0 && targetProtein > 0 ? sourceQuantity * sourceProtein / targetProtein : sourceQuantity;
+    add(targetFood.id, targetFood.name, "蛋白质", quantity, foodBaseUnit(targetFood.id));
+  };
   let remainingFishDays = Math.min(homeDayFactor, Math.max(0, substitution.daysPerWeek));
   let substitutionIndex = 0;
   templateDays.forEach(({ day, template }) => {
@@ -334,23 +352,37 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
     const meatAmount = amountNumber(template.meat.amount);
     const meatFood = resolveFood(template.meat);
     const fishFactor = meatAmount && meatFood?.id === "chicken-breast" ? Math.min(factor, remainingFishDays) : 0;
-    const fishId = substitution.foodIds.length ? substitution.foodIds[substitutionIndex++ % substitution.foodIds.length] : "salmon";
-    if (fishFactor > 0 && meatAmount) {
-      const fishFood = byId(fishId) ?? byId("salmon");
-      add(fishFood?.id, fishFood?.name ?? "鱼类", "蛋白质", meatAmount * fishFactor * templateScale * proteinFactor, fishFood ? foodBaseUnit(fishFood.id) : "g");
-    }
-    addTemplateIngredient(template.meat, "蛋白质", factor - fishFactor, index, templateScale);
-    remainingFishDays = Math.max(0, remainingFishDays - fishFactor);
+    const fishFood = fishFactor > 0 && meatAmount ? nextSubstitutionFood() : undefined;
+    const appliedFishFactor = fishFood ? fishFactor : 0;
+    if (fishFood && meatAmount) addEquivalentProtein(meatFood, meatAmount * templateScale, fishFood, appliedFishFactor);
+    addTemplateIngredient(template.meat, "蛋白质", factor - appliedFishFactor, index, templateScale);
+    remainingFishDays = Math.max(0, remainingFishDays - appliedFishFactor);
     addTemplateIngredient(template.greenVeg, "蔬菜", factor, index, templateScale);
   });
-  const standardFishDays = Math.min(standardFactor, remainingFishDays);
-  add("chicken-breast", "鸡胸肉", "蛋白质", homeDiet.chickenGrams * Math.max(0, standardFactor - standardFishDays) * proteinFactor, "g");
-  add("salmon", "三文鱼", "蛋白质", homeDiet.chickenGrams * standardFishDays * proteinFactor, "g");
+  const templateDayDates = new Set(templateDays.map(({ day }) => day.date));
+  let standardChickenFactor = 0;
+  plan.dayPlans.forEach(day => {
+    if (templateDayDates.has(day.date)) return;
+    const factor = effectiveHomeMeals(day) / 2;
+    if (factor <= 0) return;
+    const substituteFactor = Math.min(factor, remainingFishDays);
+    standardChickenFactor += factor - substituteFactor;
+    if (substituteFactor > 0) {
+      const fishFood = nextSubstitutionFood();
+      if (fishFood) addEquivalentProtein(byId("chicken-breast"), homeDiet.chickenGrams, fishFood, substituteFactor);
+      else standardChickenFactor += substituteFactor;
+    }
+    remainingFishDays = Math.max(0, remainingFishDays - substituteFactor);
+  });
+  add("chicken-breast", "鸡胸肉", "蛋白质", homeDiet.chickenGrams * standardChickenFactor * proteinFactor, "g");
   add("egg", "鸡蛋", "蛋白质", homeDiet.eggs * homeDayFactor * proteinFactor, "个");
   add("milk", "牛奶", "蛋白质", homeDiet.milkMl * homeDayFactor * proteinFactor, "ml");
   add("whey", "乳清蛋白", "蛋白质", homeDiet.wheyScoops * homeDayFactor * proteinFactor, "勺");
-  const averageCarbFactor = plan.dayPlans.length ? plan.dayPlans.reduce((sum, day, index) => sum + carbFactor(day, index), 0) / plan.dayPlans.length : 1;
-  add("rice", "白米", "碳水", homeDiet.riceGrams * standardFactor * averageCarbFactor, "g");
+  const standardRiceQuantity = plan.dayPlans.reduce((sum, day, index) => {
+    if (templateDayDates.has(day.date)) return sum;
+    return sum + homeDiet.riceGrams * (effectiveHomeMeals(day) / 2) * carbFactor(day, index);
+  }, 0);
+  add("rice", "白米", "碳水", standardRiceQuantity, "g");
   add("vegetables", "混合蔬菜", "蔬菜", homeDiet.vegetableServings * standardFactor, "份");
   add("fruit", "水果", "水果", homeDiet.fruitServings * homeDayFactor, "份");
   return Array.from(requirements.values()).map(requirement => {
@@ -365,16 +397,52 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
 
 export function normalizeState(input: Partial<FitnessState>): FitnessState {
   const base = defaultState();
+  const rawSettings = isRecord(input.settings) ? input.settings as Record<string, unknown> : {};
+  const rawNutritionTargets = isRecord(rawSettings.nutritionTargets) ? rawSettings.nutritionTargets : {};
+  const rawCarbTargets = isRecord(rawSettings.carbTargets) ? rawSettings.carbTargets : {};
+  const rawBenchmarks = isRecord(rawSettings.performanceBenchmarks) ? rawSettings.performanceBenchmarks : {};
+  const rawSubstitution = isRecord(rawSettings.proteinSubstitution) ? rawSettings.proteinSubstitution : {};
+  const numberOr = (value: unknown, fallback: number) => typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  const optionalNumberOr = (value: unknown, fallback: number | undefined) => typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  const phase = rawSettings.phase === "phase0" || rawSettings.phase === "phase1" || rawSettings.phase === "phase2" ? rawSettings.phase : base.settings.phase;
+  const nutritionTargets = {
+    calories: numberOr(rawNutritionTargets.calories, base.settings.nutritionTargets.calories),
+    protein: numberOr(rawNutritionTargets.protein, base.settings.nutritionTargets.protein),
+    carbs: numberOr(rawNutritionTargets.carbs, base.settings.nutritionTargets.carbs),
+    fat: numberOr(rawNutritionTargets.fat, base.settings.nutritionTargets.fat),
+    fruit: numberOr(rawNutritionTargets.fruit, base.settings.nutritionTargets.fruit),
+    vegetables: numberOr(rawNutritionTargets.vegetables, base.settings.nutritionTargets.vegetables),
+  };
+  const carbTargets = (['low', 'medium', 'high'] as const).reduce((result, day) => {
+    const rawTarget = isRecord(rawCarbTargets[day]) ? rawCarbTargets[day] : {};
+    result[day] = {
+      carbs: numberOr(rawTarget.carbs, base.settings.carbTargets[day].carbs),
+      calories: numberOr(rawTarget.calories, base.settings.carbTargets[day].calories),
+    };
+    return result;
+  }, {} as FitnessState["settings"]["carbTargets"]);
+  const performanceBenchmarks = {
+    squat: optionalNumberOr(rawBenchmarks.squat, base.settings.performanceBenchmarks.squat),
+    bench: optionalNumberOr(rawBenchmarks.bench, base.settings.performanceBenchmarks.bench),
+    pulling: optionalNumberOr(rawBenchmarks.pulling, base.settings.performanceBenchmarks.pulling),
+    longestFreestyleM: optionalNumberOr(rawBenchmarks.longestFreestyleM, base.settings.performanceBenchmarks.longestFreestyleM),
+  };
+  const substitutionFoodIds = Array.isArray(rawSubstitution.foodIds) ? rawSubstitution.foodIds.filter((id): id is string => typeof id === "string") : base.settings.proteinSubstitution.foodIds;
   return {
     ...base,
     ...input,
     settings: {
       ...base.settings,
-      ...(input.settings ?? {}),
-      nutritionTargets: { ...base.settings.nutritionTargets, ...(input.settings?.nutritionTargets ?? {}) },
-      carbTargets: { ...base.settings.carbTargets, ...(input.settings?.carbTargets ?? {}) },
-      performanceBenchmarks: { ...base.settings.performanceBenchmarks, ...(input.settings?.performanceBenchmarks ?? {}) },
-      proteinSubstitution: { ...base.settings.proteinSubstitution, ...(input.settings?.proteinSubstitution ?? {}) },
+      ...(isRecord(input.settings) ? input.settings : {}),
+      phase,
+      phaseDurationWeeks: Math.max(1, Math.min(104, Math.round(numberOr(rawSettings.phaseDurationWeeks, base.settings.phaseDurationWeeks)))),
+      nutritionTargets,
+      carbTargets,
+      performanceBenchmarks,
+      proteinSubstitution: {
+        daysPerWeek: Math.max(0, Math.min(7, numberOr(rawSubstitution.daysPerWeek, base.settings.proteinSubstitution.daysPerWeek))),
+        foodIds: substitutionFoodIds.length ? substitutionFoodIds : base.settings.proteinSubstitution.foodIds,
+      },
     },
     mealTemplates: input.mealTemplates?.length ? input.mealTemplates : base.mealTemplates,
     foods: Array.isArray(input.foods) ? input.foods.map(food => ({ ...(base.foods.find(defaultFood => defaultFood.id === food.id) ?? {}), ...food })) : base.foods,
@@ -396,12 +464,42 @@ function isFiniteNumber(value: unknown) {
   return value === undefined || (typeof value === "number" && Number.isFinite(value));
 }
 
+function isDateKey(value: unknown) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 /** Validate imported snapshots before they can replace the local source of truth. */
 export function validateStateSnapshot(input: unknown): string[] {
   if (!isRecord(input)) return ["备份必须是 JSON 对象"];
   const errors: string[] = [];
   if (input.version !== undefined && input.version !== 1) errors.push("不支持的备份版本");
   if (!isRecord(input.settings)) errors.push("缺少 settings 配置");
+  else {
+    const settings = input.settings;
+    if (settings.phase !== undefined && !["phase0", "phase1", "phase2"].includes(settings.phase as string)) errors.push("settings.phase 配置不正确");
+    if (settings.phaseStarted !== undefined && !isDateKey(settings.phaseStarted)) errors.push("settings.phaseStarted 格式不正确");
+    ["heightCm", "phaseDurationWeeks", "targetWeight", "targetBodyFat", "riceCupGrams"].forEach(key => { if (!isFiniteNumber(settings[key])) errors.push(`settings.${key} 必须是有限数字`); });
+    const numericTargetKeys = ["calories", "protein", "carbs", "fat", "fruit", "vegetables"];
+    const nutritionSettings = settings.nutritionTargets;
+    if (nutritionSettings !== undefined && !isRecord(nutritionSettings)) errors.push("settings.nutritionTargets 必须是对象");
+    else if (isRecord(nutritionSettings)) numericTargetKeys.forEach(key => { if (!isFiniteNumber(nutritionSettings[key])) errors.push(`settings.nutritionTargets.${key} 必须是有限数字`); });
+    const carbSettings = settings.carbTargets;
+    if (carbSettings !== undefined && !isRecord(carbSettings)) errors.push("settings.carbTargets 必须是对象");
+    else if (isRecord(carbSettings)) ["low", "medium", "high"].forEach(day => {
+      const target = carbSettings[day];
+      if (target !== undefined && !isRecord(target)) errors.push(`settings.carbTargets.${day} 必须是对象`);
+      else if (isRecord(target)) ["carbs", "calories"].forEach(key => { if (!isFiniteNumber(target[key])) errors.push(`settings.carbTargets.${day}.${key} 必须是有限数字`); });
+    });
+    const benchmarkSettings = settings.performanceBenchmarks;
+    if (benchmarkSettings !== undefined && !isRecord(benchmarkSettings)) errors.push("settings.performanceBenchmarks 必须是对象");
+    else if (isRecord(benchmarkSettings)) ["squat", "bench", "pulling", "longestFreestyleM"].forEach(key => { if (!isFiniteNumber(benchmarkSettings[key])) errors.push(`settings.performanceBenchmarks.${key} 必须是有限数字`); });
+    const substitutionSettings = settings.proteinSubstitution;
+    if (substitutionSettings !== undefined && !isRecord(substitutionSettings)) errors.push("settings.proteinSubstitution 必须是对象");
+    else if (isRecord(substitutionSettings)) {
+      if (!isFiniteNumber(substitutionSettings.daysPerWeek)) errors.push("settings.proteinSubstitution.daysPerWeek 必须是有限数字");
+      if (substitutionSettings.foodIds !== undefined && (!Array.isArray(substitutionSettings.foodIds) || substitutionSettings.foodIds.some(id => typeof id !== "string"))) errors.push("settings.proteinSubstitution.foodIds 必须是字符串数组");
+    }
+  }
   const collections = ["activities", "body", "recovery", "nutrition", "grocery", "groceryHistory", "mealTemplates", "foods", "inventory", "strengthPrograms", "weeklySchedule"];
   collections.forEach(key => { if (input[key] !== undefined && !Array.isArray(input[key])) errors.push(`${key} 必须是数组`); });
   const checkEntries = (key: string, fields: string[]) => {
@@ -584,7 +682,7 @@ export interface ReviewSummary {
     averageBodyFat?: number;
   };
   training: {
-    completed: number; planned: number; adherence: number; totalDurationMin: number;
+    completed: number; planned: number; adherence: number; extraSessions: number; totalDurationMin: number;
     strengthSessions: number; swimmingSessions: number; swimmingDistanceM: number;
     freestyleM: number; longestFreestyleM?: number; tennisSessions: number; tennisHours: number;
     boxingSessions: number; strengthProgression: Array<{ exercise: string; firstWeight?: number; latestWeight?: number; delta?: number; firstReps?: number; latestReps?: number }>;
@@ -597,14 +695,24 @@ export interface ReviewSummary {
     days: number; caloriesAverage?: number; proteinAdherence: number; carbsAverage?: number; fatAverage?: number;
     carbDayDistribution: Record<CarbDay, number>; fruitAdherence: number; vegetableAdherence: number; socialMeals: number; hungerTrend?: number;
   };
-  calibration: { weightRatePerWeek?: number; waistChange?: number; intakeWeightRelationship: "insufficient-data" | "weight-down-intake-at-target" | "weight-up-intake-at-target" | "mixed" };
+  calibration: { weightRatePerWeek?: number; waistChange?: number; intakeWeightRelationship: "insufficient-data" | "weight-down-intake-at-target" | "weight-up-intake-at-target" | "weight-down-intake-above-target" | "weight-down-intake-below-target" | "weight-up-intake-above-target" | "weight-up-intake-below-target" | "mixed" };
 }
 
 export function summarizeReview(state: FitnessState, start: string, end: string): ReviewSummary {
   const activities = entriesInRange(state.activities, start, end).filter(activity => activity.completed);
   const schedule = state.weeklySchedule.length ? state.weeklySchedule : DEFAULT_WEEKLY_SCHEDULE;
-  const plannedDays = Array.from({ length: daysBetween(start, end) + 1 }, (_, index) => ({ date: addDays(start, index), item: schedule[index % schedule.length] })).filter(entry => entry.item.type !== "other");
-  const planned = plannedDays.length;
+  const plannedDays = Array.from({ length: daysBetween(start, end) + 1 }, (_, index) => {
+    const date = addDays(start, index);
+    const week = startOfWeek(new Date(`${date}T12:00:00`));
+    const dayIndex = daysBetween(week, date);
+    const item = schedule.find(entry => entry.dayIndex === dayIndex) ?? schedule[dayIndex % schedule.length];
+    return { date, week, item };
+  }).filter(entry => entry.item.type !== "other" && entry.item.type !== "boxing");
+  const plannedTaskKeys = new Set(plannedDays.map(entry => `${entry.week}:${entry.item.id}`));
+  const completedPlannedKeys = new Set(activities.filter(activity => activity.weeklyTaskId && activity.planWeek && plannedTaskKeys.has(`${activity.planWeek}:${activity.weeklyTaskId}`)).map(activity => `${activity.planWeek}:${activity.weeklyTaskId}`));
+  const planned = plannedTaskKeys.size;
+  const completed = completedPlannedKeys.size;
+  const extraSessions = activities.filter(activity => !activity.weeklyTaskId || !activity.planWeek || !plannedTaskKeys.has(`${activity.planWeek}:${activity.weeklyTaskId}`)).length;
   const body = entriesInRange(state.body, start, end);
   const recovery = entriesInRange(state.recovery, start, end);
   const nutrition = entriesInRange(state.nutrition, start, end);
@@ -630,14 +738,17 @@ export function summarizeReview(state: FitnessState, start: string, end: string)
   const weightRate = rangeRatePerWeek(body, entry => entry.weight);
   const waistChange = rangeTrend(body, entry => entry.waist);
   const weightTrend = rangeTrend(body, entry => entry.weight);
-  const intakeWeightRelationship: ReviewSummary["calibration"]["intakeWeightRelationship"] = avgCalories === undefined || weightRate === undefined ? "insufficient-data" : weightRate < -0.1 ? "weight-down-intake-at-target" : weightRate > 0.1 ? "weight-up-intake-at-target" : "mixed";
+  const targetCalories = state.settings.nutritionTargets.calories;
+  const intakeAtTarget = targetCalories > 0 && avgCalories !== undefined && Math.abs(avgCalories - targetCalories) / targetCalories <= 0.1;
+  const intakeAboveTarget = avgCalories !== undefined && targetCalories > 0 && avgCalories > targetCalories * 1.1;
+  const intakeWeightRelationship: ReviewSummary["calibration"]["intakeWeightRelationship"] = avgCalories === undefined || weightRate === undefined ? "insufficient-data" : Math.abs(weightRate) <= 0.1 ? "mixed" : intakeAtTarget ? weightRate < 0 ? "weight-down-intake-at-target" : "weight-up-intake-at-target" : intakeAboveTarget ? weightRate < 0 ? "weight-down-intake-above-target" : "weight-up-intake-above-target" : weightRate < 0 ? "weight-down-intake-below-target" : "weight-up-intake-below-target";
   const phase = PHASES[state.settings.phase];
   const phaseWeeks = state.settings.phaseDurationWeeks || phase.weeks;
   return {
     period: { start, end, days: daysBetween(start, end) + 1 },
     phase: { id: state.settings.phase, label: phase.label, week: Math.min(phaseWeeks, Math.floor(daysBetween(state.settings.phaseStarted, end) / 7) + 1), totalWeeks: phaseWeeks },
     body: { averageWeight, weightTrend, weightRatePerWeek: weightRate, averageWaist, waistTrend: waistChange, averageBodyFat: average(body.map(entry => entry.bodyFat)), bodyFatTrend: rangeTrend(body, entry => entry.bodyFat) },
-    training: { completed: activities.length, planned, adherence: planned ? Math.min(100, Math.round(activities.length / planned * 100)) : 0, totalDurationMin: activities.reduce((sum, activity) => sum + activity.durationMin, 0), strengthSessions: strengthActivities.length, swimmingSessions: activities.filter(activity => activity.type === "swimming").length, swimmingDistanceM: activities.filter(activity => activity.type === "swimming").reduce((sum, activity) => sum + (activity.distanceM ?? 0), 0), freestyleM: activities.filter(activity => activity.type === "swimming").reduce((sum, activity) => sum + (activity.freestyleM ?? 0), 0), longestFreestyleM: Math.max(0, ...activities.map(activity => activity.longestFreestyleM ?? 0)) || undefined, tennisSessions: activities.filter(activity => activity.type === "tennis").length, tennisHours: activities.filter(activity => activity.type === "tennis").reduce((sum, activity) => sum + activity.durationMin, 0) / 60, boxingSessions: activities.filter(activity => activity.type === "boxing").length, strengthProgression },
+    training: { completed, planned, adherence: planned ? Math.min(100, Math.round(completed / planned * 100)) : 0, extraSessions, totalDurationMin: activities.reduce((sum, activity) => sum + activity.durationMin, 0), strengthSessions: strengthActivities.length, swimmingSessions: activities.filter(activity => activity.type === "swimming").length, swimmingDistanceM: activities.filter(activity => activity.type === "swimming").reduce((sum, activity) => sum + (activity.distanceM ?? 0), 0), freestyleM: activities.filter(activity => activity.type === "swimming").reduce((sum, activity) => sum + (activity.freestyleM ?? 0), 0), longestFreestyleM: Math.max(0, ...activities.map(activity => activity.longestFreestyleM ?? 0)) || undefined, tennisSessions: activities.filter(activity => activity.type === "tennis").length, tennisHours: activities.filter(activity => activity.type === "tennis").reduce((sum, activity) => sum + activity.durationMin, 0) / 60, boxingSessions: activities.filter(activity => activity.type === "boxing").length, strengthProgression },
     recovery: { averageSleep: average(recovery.map(entry => entry.sleepHours)), sleepTrend: rangeTrend(recovery, entry => entry.sleepHours), hrvTrend: rangeTrend(recovery, entry => entry.hrv), restingHrTrend: rangeTrend(recovery, entry => entry.restingHr), whoopRecovery: average(recovery.map(entry => entry.whoopRecovery)), whoopStrain: average(recovery.map(entry => entry.whoopStrain)), fatigue: average(recovery.map(entry => entry.fatigue)), soreness: average(recovery.map(entry => entry.soreness)), motivation: average(recovery.map(entry => entry.motivation)), hunger: average(recovery.map(entry => entry.hunger)) },
     nutrition: { days: nutrition.length, caloriesAverage: avgCalories, proteinAdherence: nutrition.length ? Math.round(nutrition.filter(entry => (entry.protein ?? 0) >= targetProtein).length / nutrition.length * 100) : 0, carbsAverage: average(nutrition.map(entry => entry.carbs)), fatAverage: average(nutrition.map(entry => entry.fat)), carbDayDistribution, fruitAdherence: nutrition.length ? Math.round(nutrition.filter(entry => (entry.fruitServings ?? 0) >= targetFruit).length / nutrition.length * 100) : 0, vegetableAdherence: nutrition.length ? Math.round(nutrition.filter(entry => (entry.vegetableServings ?? 0) >= targetVegetables).length / nutrition.length * 100) : 0, socialMeals: nutrition.filter(entry => Boolean(entry.socialMeal)).length, hungerTrend: rangeTrend(recovery, entry => entry.hunger) },
     calibration: { weightRatePerWeek: weightRate, waistChange, intakeWeightRelationship },

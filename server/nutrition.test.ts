@@ -63,7 +63,7 @@ describe("nutrition and grocery planning", () => {
 
   it("summarizes review trends and adherence deterministically", () => {
     const state = defaultState();
-    state.activities = [{ id: "a1", date: "2026-08-31", type: "strength", title: "Strength A", durationMin: 60, completed: true, sets: [{ exercise: "深蹲", weight: 80, reps: 8 }] }];
+    state.activities = [{ id: "a1", date: "2026-08-31", weeklyTaskId: "monday", planWeek: "2026-08-31", type: "strength", title: "Strength A", durationMin: 60, completed: true, sets: [{ exercise: "深蹲", weight: 80, reps: 8 }] }];
     state.body = [{ id: "b1", date: "2026-08-25", weight: 80, waist: 90 }, { id: "b2", date: "2026-08-31", weight: 79, waist: 89 }];
     state.nutrition = [{ id: "n1", date: "2026-08-31", homeMeals: 2, protein: 150, calories: 2200, carbs: 250, fat: 60, fruitServings: 2, vegetableServings: 4, carbDay: "medium" }];
     const summary = summarizeReview(state, "2026-08-25", "2026-08-31");

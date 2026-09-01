@@ -32,7 +32,13 @@ export default function Nutrition() {
   const homeMeals = activePlan.dayPlans.reduce((sum, day) => sum + day.homeMeals, 0);
   const socialMeals = activePlan.dayPlans.reduce((sum, day) => sum + day.socialMeals, 0);
 
-  const updateHomeDiet = (key: keyof StandardHomeDiet, value: string) => update(current => ({ ...current, standardHomeDiet: { ...current.standardHomeDiet, [key]: Number(value) || 0 } }));
+  const updateHomeDiet = (key: keyof StandardHomeDiet, value: string) => update(current => {
+    const numeric = Math.max(0, Number(value) || 0);
+    const standardHomeDiet = { ...current.standardHomeDiet, [key]: numeric };
+    return key === "fishSubstitutionDays"
+      ? { ...current, standardHomeDiet, settings: { ...current.settings, proteinSubstitution: { ...current.settings.proteinSubstitution, daysPerWeek: Math.min(7, numeric) } } }
+      : { ...current, standardHomeDiet };
+  });
   const setCarbDay = (carbDay: "low" | "medium" | "high") => update(current => {
     const existing = current.nutrition.find(item => item.date === today);
     const nextPlan = current.weeklyMealPlan?.dayPlans.some(day => day.date === today) ? { ...current.weeklyMealPlan, dayPlans: current.weeklyMealPlan.dayPlans.map(day => day.date === today ? { ...day, carbDay } : day) } : current.weeklyMealPlan;

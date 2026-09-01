@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, defaultState, formatDate, normalizeState, startOfWeek, summarizeReview, validateStateSnapshot } from "./localStore";
+import { addDays, defaultState, formatDate, generateGroceryList, normalizeState, startOfWeek, summarizeReview, validateStateSnapshot } from "./localStore";
 
 describe("local calendar helpers", () => {
   it("formats dates using the user's local calendar", () => {
@@ -22,6 +22,8 @@ describe("local calendar helpers", () => {
       "body 必须是数组",
     ]);
     expect(validateStateSnapshot({ version: 1, settings: {}, body: [{ date: "2026-08-31", weight: NaN }] })).toContain("body[0].weight 必须是有限数字");
+    expect(validateStateSnapshot({ version: 1, settings: { phase: "phase3" } })).toContain("settings.phase 配置不正确");
+    expect(validateStateSnapshot({ version: 1, settings: { proteinSubstitution: { foodIds: ["salmon", 1] } } })).toContain("settings.proteinSubstitution.foodIds 必须是字符串数组");
   });
 
   it("accepts a complete empty backup", () => {
@@ -33,5 +35,44 @@ describe("local calendar helpers", () => {
     state.settings.phaseDurationWeeks = 8;
     state.settings.phaseStarted = "2026-01-01";
     expect(summarizeReview(state, "2026-02-20", "2026-02-20").phase.totalWeeks).toBe(8);
+  });
+
+  it("falls back from invalid imported phase values", () => {
+    const state = normalizeState({ version: 1, settings: { phase: "phase3" } } as any);
+    expect(state.settings.phase).toBe("phase0");
+  });
+
+  it("counts claimed weekly tasks separately from extra sessions", () => {
+    const state = defaultState();
+    state.activities = [
+      { id: "extra", date: "2026-08-31", type: "swimming", title: "额外游泳", durationMin: 30, completed: true },
+      { id: "claimed", date: "2026-08-31", weeklyTaskId: "monday", planWeek: "2026-08-31", type: "strength", title: "Strength A", durationMin: 60, completed: true },
+    ];
+    const summary = summarizeReview(state, "2026-08-31", "2026-09-06");
+    expect(summary.training.completed).toBe(1);
+    expect(summary.training.extraSessions).toBe(1);
+    expect(summary.training.adherence).toBe(14);
+  });
+
+  it("does not claim intake is at target when calories are above target", () => {
+    const state = defaultState();
+    state.nutrition = [
+      { id: "n1", date: "2026-08-24", homeMeals: 2, calories: 3000, carbDay: "medium" },
+      { id: "n2", date: "2026-08-31", homeMeals: 2, calories: 3000, carbDay: "medium" },
+    ];
+    state.body = [
+      { id: "b1", date: "2026-08-24", weight: 80 },
+      { id: "b2", date: "2026-08-31", weight: 81 },
+    ];
+    expect(summarizeReview(state, "2026-08-24", "2026-08-31").calibration.intakeWeightRelationship).toBe("weight-up-intake-above-target");
+  });
+
+  it("uses selected substitution foods and converts quantity to the food unit", () => {
+    const homeDiet = { chickenGrams: 325, eggs: 0, milkMl: 0, wheyScoops: 0, riceGrams: 0, vegetableServings: 0, fruitServings: 0, fishSubstitutionDays: 1 };
+    const grocery = generateGroceryList(defaultState().foods, homeDiet, { startDate: "2026-08-31", days: 1, dayPlans: [{ date: "2026-08-31", carbDay: "medium", homeMeals: 2, socialMeals: 0 }] }, [], [], { substitutionRules: { daysPerWeek: 1, foodIds: ["egg"] } });
+    const eggs = grocery.find(item => item.foodId === "egg");
+    expect(eggs?.unit).toBe("个");
+    expect(eggs?.required).toBeGreaterThan(10);
+    expect(grocery.find(item => item.foodId === "salmon")).toBeUndefined();
   });
 });
