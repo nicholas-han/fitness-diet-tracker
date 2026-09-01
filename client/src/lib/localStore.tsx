@@ -250,8 +250,21 @@ export function foodBaseUnit(foodId: string) {
   return "份";
 }
 
+export function foodBaseUnitFromDefinition(food: FoodItem) {
+  if (["chicken-breast", "salmon", "rice"].includes(food.id)) return "g";
+  if (food.id === "milk") return "ml";
+  if (food.id === "egg") return "个";
+  if (food.id === "whey") return "勺";
+  const definition = `${food.nutritionUnit} ${food.shoppingPackUnit ?? ""}`.toLowerCase();
+  if (/克|\bgrams?\b|\bg\b/.test(definition)) return "g";
+  if (/毫升|\bmillilit(?:er|re)s?\b|\bml\b/.test(definition)) return "ml";
+  if (/个|只|枚|\bpieces?\b/.test(definition)) return "个";
+  if (/勺|\bscoops?\b/.test(definition)) return "勺";
+  return "份";
+}
+
 function proteinPerBaseUnit(food: FoodItem) {
-  const unit = foodBaseUnit(food.id);
+  const unit = foodBaseUnitFromDefinition(food);
   return unit === "g" || unit === "ml" ? food.proteinPerUnit / 100 : food.proteinPerUnit;
 }
 
@@ -325,7 +338,7 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
     const food = resolveFood(ingredient);
     const carbMultiplier = food?.id === "rice" || ingredient.name.includes("米") ? carbFactor(plan.dayPlans[index], index) : 1;
     const proteinMultiplier = food?.category === "蛋白质" || category === "蛋白质" ? proteinFactor : 1;
-    add(food?.id, ingredient.name, food?.category ?? category, amount * factor * templateScale * carbMultiplier * proteinMultiplier, food ? foodBaseUnit(food.id) : "g");
+    add(food?.id, ingredient.name, food?.category ?? category, amount * factor * templateScale * carbMultiplier * proteinMultiplier, food ? foodBaseUnitFromDefinition(food) : "g");
   };
   const substitution = options.substitutionRules ?? { daysPerWeek: homeDiet.fishSubstitutionDays, foodIds: ["salmon"] };
   const substitutionFoods = substitution.foodIds.map(byId).filter((food): food is FoodItem => Boolean(food && food.category === "蛋白质" && food.id !== "chicken-breast" && proteinPerBaseUnit(food) > 0));
@@ -339,7 +352,7 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
     const targetProtein = proteinPerBaseUnit(targetFood);
     const sourceQuantity = sourceAmount * factor * proteinFactor;
     const quantity = sourceProtein > 0 && targetProtein > 0 ? sourceQuantity * sourceProtein / targetProtein : sourceQuantity;
-    add(targetFood.id, targetFood.name, "蛋白质", quantity, foodBaseUnit(targetFood.id));
+    add(targetFood.id, targetFood.name, "蛋白质", quantity, foodBaseUnitFromDefinition(targetFood));
   };
   let remainingFishDays = Math.min(homeDayFactor, Math.max(0, substitution.daysPerWeek));
   let substitutionIndex = 0;
@@ -402,6 +415,7 @@ export function normalizeState(input: Partial<FitnessState>): FitnessState {
   const rawCarbTargets = isRecord(rawSettings.carbTargets) ? rawSettings.carbTargets : {};
   const rawBenchmarks = isRecord(rawSettings.performanceBenchmarks) ? rawSettings.performanceBenchmarks : {};
   const rawSubstitution = isRecord(rawSettings.proteinSubstitution) ? rawSettings.proteinSubstitution : {};
+  const rawHomeDiet = isRecord(input.standardHomeDiet) ? input.standardHomeDiet as Record<string, unknown> : {};
   const numberOr = (value: unknown, fallback: number) => typeof value === "number" && Number.isFinite(value) ? value : fallback;
   const optionalNumberOr = (value: unknown, fallback: number | undefined) => typeof value === "number" && Number.isFinite(value) ? value : fallback;
   const phase = rawSettings.phase === "phase0" || rawSettings.phase === "phase1" || rawSettings.phase === "phase2" ? rawSettings.phase : base.settings.phase;
@@ -428,6 +442,8 @@ export function normalizeState(input: Partial<FitnessState>): FitnessState {
     longestFreestyleM: optionalNumberOr(rawBenchmarks.longestFreestyleM, base.settings.performanceBenchmarks.longestFreestyleM),
   };
   const substitutionFoodIds = Array.isArray(rawSubstitution.foodIds) ? rawSubstitution.foodIds.filter((id): id is string => typeof id === "string") : base.settings.proteinSubstitution.foodIds;
+  const legacyFishDays = numberOr(rawHomeDiet.fishSubstitutionDays, base.standardHomeDiet.fishSubstitutionDays);
+  const substitutionDays = Math.max(0, Math.min(7, numberOr(rawSubstitution.daysPerWeek, legacyFishDays)));
   return {
     ...base,
     ...input,
@@ -440,14 +456,14 @@ export function normalizeState(input: Partial<FitnessState>): FitnessState {
       carbTargets,
       performanceBenchmarks,
       proteinSubstitution: {
-        daysPerWeek: Math.max(0, Math.min(7, numberOr(rawSubstitution.daysPerWeek, base.settings.proteinSubstitution.daysPerWeek))),
+        daysPerWeek: substitutionDays,
         foodIds: substitutionFoodIds.length ? substitutionFoodIds : base.settings.proteinSubstitution.foodIds,
       },
     },
     mealTemplates: input.mealTemplates?.length ? input.mealTemplates : base.mealTemplates,
     foods: Array.isArray(input.foods) ? input.foods.map(food => ({ ...(base.foods.find(defaultFood => defaultFood.id === food.id) ?? {}), ...food })) : base.foods,
     carbDayOverrides: { ...base.carbDayOverrides, ...(input.carbDayOverrides ?? {}) },
-    standardHomeDiet: { ...base.standardHomeDiet, ...(input.standardHomeDiet ?? {}) },
+    standardHomeDiet: { ...base.standardHomeDiet, ...(input.standardHomeDiet ?? {}), fishSubstitutionDays: substitutionDays },
     reviewNotes: { ...base.reviewNotes, ...(input.reviewNotes ?? {}) },
     weeklyMealPlan: input.weeklyMealPlan?.dayPlans?.length ? input.weeklyMealPlan : base.weeklyMealPlan,
     inventory: input.inventory ?? base.inventory,

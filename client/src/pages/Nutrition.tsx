@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Check, Pencil, Plus, Save, ShoppingCart, Trash2, Utensils } from "lucide-react";
 import { useLocation } from "wouter";
 import { CheckRow, Empty, PageHeader, Panel, ProgressBar, Section } from "@/components/os-ui";
-import { addDays, defaultWeeklyMealPlan, foodBaseUnit, formatDate, generateGroceryList, recalculateMealTemplate, startOfWeek, uid, useFitnessStore, type FoodItem, type GroceryItem, type InventoryItem, type StandardHomeDiet, type WeeklyMealPlan, type WeeklyMealPlanDay } from "@/lib/localStore";
+import { addDays, defaultWeeklyMealPlan, foodBaseUnitFromDefinition, formatDate, generateGroceryList, recalculateMealTemplate, startOfWeek, uid, useFitnessStore, type FoodItem, type GroceryItem, type InventoryItem, type StandardHomeDiet, type WeeklyMealPlan, type WeeklyMealPlanDay } from "@/lib/localStore";
 import type { IngredientDetail, MealTemplate } from "@shared/mealTemplates";
 
 const numericIngredientFields = new Set(["kcal", "protein", "carbs", "fat"]);
@@ -73,12 +73,15 @@ export default function Nutrition() {
   const addInventory = () => update(current => {
     const food = current.foods[0];
     if (!food) return current;
-    return { ...current, inventory: [...current.inventory, { id: uid("inventory"), foodId: food.id, quantity: 0, unit: foodBaseUnit(food.id), storage: "pantry" }] };
+    return { ...current, inventory: [...current.inventory, { id: uid("inventory"), foodId: food.id, quantity: 0, unit: foodBaseUnitFromDefinition(food), storage: "pantry" }] };
   });
   const updateInventory = (id: string, patch: Partial<InventoryItem>) => update(current => ({ ...current, inventory: current.inventory.map(item => {
     if (item.id !== id) return item;
     const next = { ...item, ...patch };
-    if (patch.foodId) next.unit = foodBaseUnit(patch.foodId);
+    if (patch.foodId) {
+      const food = current.foods.find(item => item.id === patch.foodId);
+      if (food) next.unit = foodBaseUnitFromDefinition(food);
+    }
     return next;
   }) }));
   const removeInventory = (id: string) => update(current => ({ ...current, inventory: current.inventory.filter(item => item.id !== id) }));

@@ -31,29 +31,33 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  // V1 local-first persistence. The JSON file lives under personal-data/ and
-  // is intentionally ignored by Git; no authentication or database is needed.
-  app.get("/api/local-state", async (_req, res) => {
-    try {
-      res.json({ state: await readLocalState() });
-    } catch (error) {
-      console.error("[Local data] Failed to read state:", error);
-      res.status(500).json({ error: "Failed to read local state" });
-    }
-  });
-  app.put("/api/local-state", async (req, res) => {
-    try {
-      if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
-        res.status(400).json({ error: "State must be a JSON object" });
-        return;
+  // V1 local-first persistence is intentionally development-only. Production
+  // binds publicly, so it must never expose the private local JSON snapshot.
+  if (process.env.NODE_ENV === "development") {
+    app.get("/api/local-state", async (_req, res) => {
+      try {
+        res.json({ state: await readLocalState() });
+      } catch (error) {
+        console.error("[Local data] Failed to read state:", error);
+        res.status(500).json({ error: "Failed to read local state" });
       }
-      await writeLocalState(req.body);
-      res.status(204).end();
-    } catch (error) {
-      console.error("[Local data] Failed to write state:", error);
-      res.status(500).json({ error: "Failed to write local state" });
-    }
-  });
+    });
+    app.put("/api/local-state", async (req, res) => {
+      try {
+        if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+          res.status(400).json({ error: "State must be a JSON object" });
+          return;
+        }
+        await writeLocalState(req.body);
+        res.status(204).end();
+      } catch (error) {
+        console.error("[Local data] Failed to write state:", error);
+        res.status(500).json({ error: "Failed to write local state" });
+      }
+    });
+  } else {
+    app.all("/api/local-state", (_req, res) => res.status(404).json({ error: "Local state is only available in development" }));
+  }
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
