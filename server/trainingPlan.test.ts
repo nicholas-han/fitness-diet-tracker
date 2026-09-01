@@ -7,7 +7,7 @@ describe("P1 training plan data", () => {
   it("ships the seven-day default architecture", () => {
     expect(DEFAULT_WEEKLY_SCHEDULE).toHaveLength(7);
     expect(DEFAULT_WEEKLY_SCHEDULE.map(entry => entry.dayIndex)).toEqual([0, 1, 2, 3, 4, 5, 6]);
-    expect(DEFAULT_WEEKLY_SCHEDULE.find(entry => entry.id === "saturday")?.optionalTasks?.map(task => task.type)).toContain("tennis");
+    expect(DEFAULT_WEEKLY_SCHEDULE.find(entry => entry.id === "saturday")?.optionalTasks?.map(task => task.type)).toEqual(expect.arrayContaining(["boxing", "swimming", "tennis"]));
   });
 
   it("ships three editable strength programs and progressive Phase 0 guidance", () => {

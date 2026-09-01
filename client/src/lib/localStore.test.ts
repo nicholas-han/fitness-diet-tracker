@@ -56,6 +56,14 @@ describe("local calendar helpers", () => {
     expect(state.weeklySchedule.find(entry => entry.id === "tuesday")?.optionalTasks).toBeUndefined();
   });
 
+  it("adds new optional tasks without overwriting persisted task edits", () => {
+    const saturday = defaultState().weeklySchedule.find(entry => entry.id === "saturday")!;
+    const state = normalizeState({ version: 1, settings: { phase: "phase0" }, weeklySchedule: [{ ...saturday, optionalTasks: [{ ...saturday.optionalTasks![0], title: "自定义拳击" }] }] } as any);
+    const migrated = state.weeklySchedule.find(entry => entry.id === "saturday")!;
+    expect(migrated.optionalTasks?.find(task => task.id === saturday.optionalTasks![0].id)?.title).toBe("自定义拳击");
+    expect(migrated.optionalTasks?.map(task => task.id)).toEqual(expect.arrayContaining(["saturday-optional-swim", "saturday-optional-tennis"]));
+  });
+
   it("counts claimed weekly tasks separately from extra sessions", () => {
     const state = defaultState();
     state.activities = [
@@ -66,6 +74,15 @@ describe("local calendar helpers", () => {
     expect(summary.training.completed).toBe(1);
     expect(summary.training.extraSessions).toBe(1);
     expect(summary.training.adherence).toBe(14);
+  });
+
+  it("counts a substituted activity toward its original claimed task", () => {
+    const state = defaultState();
+    state.activities = [{ id: "claimed-tennis", date: "2026-08-31", weeklyTaskId: "tuesday", planWeek: "2026-08-31", plannedType: "tennis", type: "swimming", title: "游泳", durationMin: 45, completed: true }];
+    const summary = summarizeReview(state, "2026-08-31", "2026-09-06");
+    expect(summary.training.completed).toBe(1);
+    expect(summary.training.swimmingSessions).toBe(1);
+    expect(summary.training.tennisSessions).toBe(0);
   });
 
   it("calculates a deterministic training load from duration and RPE", () => {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Check, Pencil, Plus, Save, ShoppingCart, Trash2, Utensils } from "lucide-react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { CheckRow, Empty, PageHeader, Panel, ProgressBar, Section } from "@/components/os-ui";
 import { addDays, defaultWeeklyMealPlan, foodBaseUnitFromDefinition, formatDate, generateGroceryList, recalculateMealTemplate, startOfWeek, uid, useFitnessStore, type FoodItem, type GroceryExtra, type GroceryItem, type InventoryItem, type StandardHomeDiet, type WeeklyMealPlan, type WeeklyMealPlanDay } from "@/lib/localStore";
 import type { IngredientDetail, MealTemplate } from "@shared/mealTemplates";
@@ -16,7 +16,10 @@ function IngredientEditor({ ingredient, onChange }: { ingredient: IngredientDeta
 export default function Nutrition() {
   const { state, update } = useFitnessStore();
   const [, go] = useLocation();
-  const [tab, setTab] = useState<"today" | "templates" | "foods" | "weekly" | "grocery">("today");
+  const search = useSearch();
+  const requestedTab = new URLSearchParams(search).get("tab");
+  const initialTab = requestedTab === "templates" || requestedTab === "foods" || requestedTab === "weekly" || requestedTab === "grocery" ? requestedTab : "today";
+  const [tab, setTab] = useState<"today" | "templates" | "foods" | "weekly" | "grocery">(initialTab);
   const [templateScales, setTemplateScales] = useState<Record<string, number>>({});
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const today = formatDate();
