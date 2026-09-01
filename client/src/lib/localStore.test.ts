@@ -90,4 +90,13 @@ describe("local calendar helpers", () => {
     expect(turkey).toMatchObject({ unit: "g", purchase: "1 × 500 g 包" });
     expect(turkey?.required).toBeCloseTo(299, 0);
   });
+
+  it("parses compact custom nutrition units without letting pack units override them", () => {
+    const customFood = { id: "turkey-compact", name: "火鸡胸（紧凑单位）", category: "蛋白质", nutritionUnit: "100g 生重", shoppingUnit: "500 g 包", shoppingPackSize: 500, shoppingPackUnit: "g", caloriesPerUnit: 120, proteinPerUnit: 25, carbsPerUnit: 0, fatPerUnit: 2 };
+    const homeDiet = { chickenGrams: 325, eggs: 0, milkMl: 0, wheyScoops: 0, riceGrams: 0, vegetableServings: 0, fruitServings: 0, fishSubstitutionDays: 1 };
+    const grocery = generateGroceryList([...defaultState().foods, customFood], homeDiet, { startDate: "2026-08-31", days: 1, dayPlans: [{ date: "2026-08-31", carbDay: "medium", homeMeals: 2, socialMeals: 0 }] }, [], [], { substitutionRules: { daysPerWeek: 1, foodIds: ["turkey-compact"] } });
+    const turkey = grocery.find(item => item.foodId === "turkey-compact");
+    expect(turkey?.unit).toBe("g");
+    expect(turkey?.required).toBeCloseTo(299, 0);
+  });
 });

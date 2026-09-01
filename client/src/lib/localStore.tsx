@@ -255,11 +255,11 @@ export function foodBaseUnitFromDefinition(food: FoodItem) {
   if (food.id === "milk") return "ml";
   if (food.id === "egg") return "个";
   if (food.id === "whey") return "勺";
-  const definition = `${food.nutritionUnit} ${food.shoppingPackUnit ?? ""}`.toLowerCase();
-  if (/克|\bgrams?\b|\bg\b/.test(definition)) return "g";
-  if (/毫升|\bmillilit(?:er|re)s?\b|\bml\b/.test(definition)) return "ml";
-  if (/个|只|枚|\bpieces?\b/.test(definition)) return "个";
-  if (/勺|\bscoops?\b/.test(definition)) return "勺";
+  const definition = food.nutritionUnit.toLowerCase().replace(/\s+/g, "");
+  if (/\d(?:g|grams?|克)(?:$|[^a-z])/.test(definition)) return "g";
+  if (/\d(?:ml|millilit(?:er|re)s?|毫升)(?:$|[^a-z])/.test(definition)) return "ml";
+  if (/\d(?:个|只|枚|pieces?)(?:$|[^a-z])/.test(definition)) return "个";
+  if (/\d(?:勺|scoops?)(?:$|[^a-z])/.test(definition)) return "勺";
   return "份";
 }
 
