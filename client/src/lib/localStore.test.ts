@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseRiceCupGrams } from "../App";
 import { addDays, baselineDeviation, defaultState, formatDate, generateGroceryList, normalizeState, startOfWeek, summarizeReview, trainingLoad, validateStateSnapshot } from "./localStore";
 
 describe("local calendar helpers", () => {
@@ -121,6 +122,28 @@ describe("local calendar helpers", () => {
     const chickenFor = (items: typeof twoPortions) => items.find(item => item.foodId === "chicken-breast")?.required ?? 0;
     expect(chickenFor(twoPortions)).toBe(250);
     expect(chickenFor(fourPortions)).toBe(125);
+    expect(twoPortions.find(item => item.foodId === "vegetables")?.required ?? 0).toBe(0);
+    expect(fourPortions.find(item => item.foodId === "vegetables")?.required ?? 0).toBe(0);
+  });
+
+  it("calculates standard vegetables only for days without a usable template", () => {
+    const base = defaultState();
+    const plan = {
+      startDate: "2026-08-31",
+      days: 2,
+      dayPlans: [
+        { date: "2026-08-31", carbDay: "medium" as const, homeMeals: 2, socialMeals: 0, templateId: base.mealTemplates[0].id, templateScale: 1 },
+        { date: "2026-09-01", carbDay: "medium" as const, homeMeals: 2, socialMeals: 0 },
+      ],
+    };
+    const grocery = generateGroceryList(base.foods, { ...base.standardHomeDiet, fishSubstitutionDays: 0 }, plan, [{ ...base.mealTemplates[0], portions: 4 }]);
+    expect(grocery.find(item => item.foodId === "vegetables")?.required).toBe(base.standardHomeDiet.vegetableServings);
+  });
+
+  it("keeps multi-digit rice-cup drafts valid until explicit save", () => {
+    expect(parseRiceCupGrams("1")).toBe(1);
+    expect(parseRiceCupGrams("150")).toBe(150);
+    expect(parseRiceCupGrams("")).toBeUndefined();
   });
 
   it("calculates current recovery deviation from the preceding baseline window", () => {

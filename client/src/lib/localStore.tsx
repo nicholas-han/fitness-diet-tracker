@@ -334,8 +334,8 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
   const effectiveHomeMeals = (day: WeeklyMealPlanDay) => Math.max(0, day.homeMeals - day.socialMeals);
   const homeDayFactor = plan.dayPlans.reduce((total, day) => total + effectiveHomeMeals(day) / 2, 0);
   const templateDays = plan.dayPlans.filter(day => effectiveHomeMeals(day) > 0 && day.templateId).map(day => ({ day, template: templates.find(template => template.id === day.templateId) })).filter((value): value is { day: WeeklyMealPlanDay; template: MealTemplate } => Boolean(value.template));
-  const templateFactor = templateDays.reduce((total, value) => total + effectiveHomeMeals(value.day) / (value.template.portions ?? 2), 0);
-  const standardFactor = Math.max(0, homeDayFactor - templateFactor);
+  const templateDayDates = new Set(templateDays.map(({ day }) => day.date));
+  const standardFactor = plan.dayPlans.reduce((total, day) => templateDayDates.has(day.date) ? total : total + effectiveHomeMeals(day) / 2, 0);
   const resolveFood = (ingredient: IngredientDetail) => {
     const normalized = ingredient.name.toLowerCase();
     return foods.find(item => normalized.includes(item.name.toLowerCase()) || item.name.toLowerCase().includes(normalized)) ?? (normalized.includes("米") ? byId("rice") : normalized.includes("鸡") ? byId("chicken-breast") : normalized.includes("三文鱼") ? byId("salmon") : undefined);
@@ -386,7 +386,6 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
     remainingFishDays = Math.max(0, remainingFishDays - appliedFishFactor);
     addTemplateIngredient(template.greenVeg, "蔬菜", factor, index, templateScale);
   });
-  const templateDayDates = new Set(templateDays.map(({ day }) => day.date));
   let standardChickenFactor = 0;
   plan.dayPlans.forEach(day => {
     if (templateDayDates.has(day.date)) return;
