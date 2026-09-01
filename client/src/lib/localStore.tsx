@@ -42,6 +42,9 @@ export interface ActivityEntry {
   claimedAt?: string;
   /** The scheduled type before a user optionally substitutes another sport. */
   plannedType?: WeeklyScheduleEntry["type"];
+  plannedTitle?: string;
+  plannedSessionType?: string;
+  plannedDurationMin?: number;
   plannedNotes?: string;
   type: WeeklyScheduleEntry["type"];
   title: string;

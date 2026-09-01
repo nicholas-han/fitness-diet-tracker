@@ -10,6 +10,10 @@ function plannedSets(program: StrengthProgram, targetRir: string) {
   return program.exercises.flatMap(exercise => Array.from({ length: exercise.sets }, () => ({ exercise: exercise.name, targetReps: exercise.repRange, targetRir })));
 }
 
+function defaultDurationForType(type: TrainingSessionKind) {
+  return type === "swimming" ? 45 : type === "boxing" ? 90 : 90;
+}
+
 export default function Plan() {
   const { state, update } = useFitnessStore();
   const [, go] = useLocation();
@@ -34,8 +38,9 @@ export default function Plan() {
 
   const addPlanned = (date: string, item: WeeklyScheduleEntry, weeklyClaim?: { weeklyTaskId: string; planWeek: string }) => {
     const program = item.programId ? programs.find(p => p.id === item.programId) : undefined;
+    const durationMin = program ? 60 : item.type === "swimming" ? 45 : item.type === "core" ? 30 : 90;
     update(current => ({ ...current, activities: [...current.activities, {
-      id: uid("activity"), date, ...weeklyClaim, claimedAt: weeklyClaim ? new Date().toISOString() : undefined, plannedType: weeklyClaim ? item.type ?? "other" : undefined, plannedNotes: weeklyClaim ? item.secondary : undefined, type: item.type ?? "other", title: item.title, durationMin: program ? 60 : item.type === "swimming" ? 45 : item.type === "core" ? 30 : 90,
+      id: uid("activity"), date, ...weeklyClaim, claimedAt: weeklyClaim ? new Date().toISOString() : undefined, plannedType: weeklyClaim ? item.type ?? "other" : undefined, plannedTitle: weeklyClaim ? item.title : undefined, plannedSessionType: weeklyClaim ? item.sessionType : undefined, plannedDurationMin: weeklyClaim ? durationMin : undefined, plannedNotes: weeklyClaim ? item.secondary : undefined, type: item.type ?? "other", title: item.title, durationMin,
       sessionType: item.sessionType, coreFocus: item.coreFocus, completed: false, notes: item.secondary, sets: program ? plannedSets(program, targetRirForDate(date)) : undefined,
     }] }));
   };
@@ -65,10 +70,13 @@ export default function Plan() {
     activities: current.activities.map(activity => {
       if (activity.id !== activityId || activity.completed) return activity;
       const plannedType = activity.plannedType ?? activity.type;
-      const originalLabel = plannedType === "swimming" ? "游泳" : plannedType === "tennis" ? "网球" : plannedType === "boxing" ? "拳击" : activity.title;
+      const originalLabel = activity.plannedTitle ?? (plannedType === "swimming" ? "游泳" : plannedType === "tennis" ? "网球" : plannedType === "boxing" ? "拳击" : activity.title);
+      const plannedTitle = activity.plannedTitle ?? activity.title;
+      const plannedSessionType = activity.plannedSessionType ?? activity.sessionType;
+      const plannedDurationMin = activity.plannedDurationMin ?? activity.durationMin;
       const plannedNotes = activity.plannedNotes ?? activity.notes;
       const replacementNote = type === plannedType ? plannedNotes : `替代训练：${claimTypeLabel(type)}（原计划：${originalLabel}）`;
-      return { ...activity, plannedType, plannedNotes, type, title: claimTypeLabel(type), sessionType: SPORT_SESSION_TYPES[type][0], coreFocus: undefined, sets: undefined, notes: replacementNote };
+      return { ...activity, plannedType, plannedTitle, plannedSessionType, plannedDurationMin, plannedNotes, type, title: type === plannedType ? plannedTitle : claimTypeLabel(type), durationMin: type === plannedType ? plannedDurationMin : defaultDurationForType(type), sessionType: type === plannedType ? plannedSessionType : SPORT_SESSION_TYPES[type][0], coreFocus: undefined, sets: undefined, notes: replacementNote };
     }),
   }));
   const cancelClaim = (activityId: string) => {
