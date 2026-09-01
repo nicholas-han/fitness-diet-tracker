@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, defaultState, formatDate, generateGroceryList, normalizeState, startOfWeek, summarizeReview, validateStateSnapshot } from "./localStore";
+import { addDays, baselineDeviation, defaultState, formatDate, generateGroceryList, normalizeState, startOfWeek, summarizeReview, trainingLoad, validateStateSnapshot } from "./localStore";
 
 describe("local calendar helpers", () => {
   it("formats dates using the user's local calendar", () => {
@@ -48,6 +48,13 @@ describe("local calendar helpers", () => {
     expect(state.standardHomeDiet.fishSubstitutionDays).toBe(5);
   });
 
+  it("migrates persisted schedules with newly introduced optional tasks", () => {
+    const oldSchedule = defaultState().weeklySchedule.map(({ optionalTasks: _optionalTasks, ...entry }) => entry);
+    const state = normalizeState({ version: 1, settings: { phase: "phase0" }, weeklySchedule: oldSchedule } as any);
+    expect(state.weeklySchedule.find(entry => entry.id === "monday")?.optionalTasks?.[0].id).toBe("monday-easy-swim");
+    expect(state.weeklySchedule.find(entry => entry.id === "tuesday")?.optionalTasks).toBeUndefined();
+  });
+
   it("counts claimed weekly tasks separately from extra sessions", () => {
     const state = defaultState();
     state.activities = [
@@ -58,6 +65,11 @@ describe("local calendar helpers", () => {
     expect(summary.training.completed).toBe(1);
     expect(summary.training.extraSessions).toBe(1);
     expect(summary.training.adherence).toBe(14);
+  });
+
+  it("calculates a deterministic training load from duration and RPE", () => {
+    expect(trainingLoad({ durationMin: 60, rpe: 8 })).toBe(480);
+    expect(trainingLoad({ durationMin: 45 })).toBe(225);
   });
 
   it("does not claim intake is at target when calories are above target", () => {
@@ -98,5 +110,30 @@ describe("local calendar helpers", () => {
     const turkey = grocery.find(item => item.foodId === "turkey-compact");
     expect(turkey?.unit).toBe("g");
     expect(turkey?.required).toBeCloseTo(299, 0);
+  });
+
+  it("uses a meal template's configured portion count for grocery demand", () => {
+    const base = defaultState();
+    const plan = { startDate: "2026-08-31", days: 1, dayPlans: [{ date: "2026-08-31", carbDay: "medium" as const, homeMeals: 2, socialMeals: 0, templateId: base.mealTemplates[0].id }] };
+    const diet = { ...base.standardHomeDiet, fishSubstitutionDays: 0 };
+    const twoPortions = generateGroceryList(base.foods, diet, plan, [{ ...base.mealTemplates[0], portions: 2 }]);
+    const fourPortions = generateGroceryList(base.foods, diet, plan, [{ ...base.mealTemplates[0], portions: 4 }]);
+    const chickenFor = (items: typeof twoPortions) => items.find(item => item.foodId === "chicken-breast")?.required ?? 0;
+    expect(chickenFor(twoPortions)).toBe(250);
+    expect(chickenFor(fourPortions)).toBe(125);
+  });
+
+  it("calculates current recovery deviation from the preceding baseline window", () => {
+    const entries = [
+      ...Array.from({ length: 28 }, (_, index) => ({ date: addDays("2026-08-03", index), value: 50 })),
+      ...Array.from({ length: 7 }, (_, index) => ({ date: addDays("2026-08-31", index), value: 60 })),
+    ];
+    expect(baselineDeviation(entries, entry => entry.value, "2026-09-06")).toBe(10);
+  });
+
+  it("adds enabled standalone grocery items and skips disabled ones", () => {
+    const grocery = generateGroceryList(defaultState().foods, { chickenGrams: 0, eggs: 0, milkMl: 0, wheyScoops: 0, riceGrams: 0, vegetableServings: 0, fruitServings: 0, fishSubstitutionDays: 0 }, { startDate: "2026-08-31", days: 1, dayPlans: [{ date: "2026-08-31", carbDay: "low", homeMeals: 0, socialMeals: 0 }] }, [], [], { additionalItems: [{ id: "salt", name: "盐", category: "其他", quantity: 1, unit: "袋", notes: "低钠优先", enabled: true }, { id: "disabled", name: "不买", category: "其他", quantity: 1, unit: "个", enabled: false }] });
+    expect(grocery.find(item => item.name === "盐")).toMatchObject({ category: "其他", required: 1, unit: "袋", notes: "低钠优先" });
+    expect(grocery.find(item => item.name === "不买")).toBeUndefined();
   });
 });

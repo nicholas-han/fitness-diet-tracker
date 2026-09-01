@@ -1,3 +1,4 @@
+import React from "react";
 import { ReactNode } from "react";
 import { ArrowUpRight, Check, Circle } from "lucide-react";
 

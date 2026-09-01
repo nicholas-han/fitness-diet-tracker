@@ -21,6 +21,8 @@ export interface MealTemplate {
   greenVeg: IngredientDetail;
   seasoning: string[];
   tips: string;
+  /** Number of meals/portions produced by the template at scale 1. */
+  portions?: number;
   totalKcal: number;
   macros: { protein: number; carbs: number; fat: number };
   dayTotalKcal: number;
@@ -116,6 +118,7 @@ function makeMeal(
     greenVeg,
     seasoning: ["盐 2g", dayType === "training" ? "食用油 5g" : "食用油 10g", "生抽 15ml"],
     tips,
+    portions: 2,
     totalKcal: Math.round(totalKcal),
     macros: { protein: Math.round(protein), carbs: Math.round(carbs), fat: Math.round(fat) },
     dayTotalKcal: Math.round(dayTotalKcal),
