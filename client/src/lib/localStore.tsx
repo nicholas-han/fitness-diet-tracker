@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { MEAL_TEMPLATES, type IngredientDetail, type MealTemplate } from "@shared/mealTemplates";
 import { WORKOUT_TEMPLATES } from "@shared/workoutTemplates";
 import { DEFAULT_STRENGTH_PROGRAMS, type CoreFocus, type StrengthProgram } from "@shared/strengthPrograms";
-import { DEFAULT_WEEKLY_SCHEDULE, type WeeklyScheduleEntry } from "@shared/trainingPlan";
+import { DEFAULT_WEEKLY_SCHEDULE, migrateWeeklySchedule, type WeeklyScheduleEntry } from "@shared/trainingPlan";
 
 export type PhaseId = "phase0" | "phase1" | "phase2";
 export type CarbDay = "low" | "medium" | "high";
@@ -40,6 +40,12 @@ export interface ActivityEntry {
   weeklyTaskId?: string;
   planWeek?: string;
   claimedAt?: string;
+  /** The scheduled type before a user optionally substitutes another sport. */
+  plannedType?: WeeklyScheduleEntry["type"];
+  plannedTitle?: string;
+  plannedSessionType?: string;
+  plannedDurationMin?: number;
+  plannedNotes?: string;
   type: WeeklyScheduleEntry["type"];
   title: string;
   durationMin: number;
@@ -149,6 +155,16 @@ export interface InventoryItem {
   storage?: "frozen" | "refrigerated" | "pantry";
 }
 
+export interface GroceryExtra {
+  id: string;
+  name: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  notes?: string;
+  enabled?: boolean;
+}
+
 export interface FitnessState {
   version: 1;
   updatedAt?: string;
@@ -161,6 +177,7 @@ export interface FitnessState {
     targetWeight: number;
     targetBodyFat: number;
     riceCupGrams?: number;
+    riceCupPromptDismissed?: boolean;
     nutritionTargets: { calories: number; protein: number; carbs: number; fat: number; fruit: number; vegetables: number };
     carbTargets: Record<CarbDay, { carbs: number; calories: number }>;
     performanceBenchmarks: { squat?: number; bench?: number; pulling?: number; longestFreestyleM?: number };
@@ -173,6 +190,7 @@ export interface FitnessState {
   carbDayOverrides: Record<string, CarbDay>;
   grocery: GroceryItem[];
   groceryHistory: Array<{ date: string; items: GroceryItem[] }>;
+  groceryExtras: GroceryExtra[];
   mealTemplates: MealTemplate[];
   foods: FoodItem[];
   standardHomeDiet: StandardHomeDiet;
@@ -203,12 +221,13 @@ export const defaultState = (): FitnessState => ({
     phaseDurationWeeks: 6,
     targetWeight: 80,
     targetBodyFat: 14,
+    riceCupPromptDismissed: false,
     nutritionTargets: { calories: 2250, protein: 145, carbs: 260, fat: 65, fruit: 2, vegetables: 4 },
     carbTargets: { low: { carbs: 180, calories: 2100 }, medium: { carbs: 260, calories: 2250 }, high: { carbs: 330, calories: 2450 } },
     performanceBenchmarks: {},
     proteinSubstitution: { daysPerWeek: 2, foodIds: ["salmon"] },
   },
-  activities: [], body: [], recovery: [], nutrition: [], carbDayOverrides: {}, grocery: [], groceryHistory: [], mealTemplates: MEAL_TEMPLATES, foods: defaultFoods(), standardHomeDiet: defaultHomeDiet(), weeklyMealPlan: defaultWeeklyMealPlan(), inventory: [], strengthPrograms: DEFAULT_STRENGTH_PROGRAMS, weeklySchedule: DEFAULT_WEEKLY_SCHEDULE, reviewNotes: {},
+  activities: [], body: [], recovery: [], nutrition: [], carbDayOverrides: {}, grocery: [], groceryHistory: [], groceryExtras: [], mealTemplates: MEAL_TEMPLATES, foods: defaultFoods(), standardHomeDiet: defaultHomeDiet(), weeklyMealPlan: defaultWeeklyMealPlan(), inventory: [], strengthPrograms: DEFAULT_STRENGTH_PROGRAMS, weeklySchedule: DEFAULT_WEEKLY_SCHEDULE, reviewNotes: {},
 });
 
 export function defaultFoods(): FoodItem[] {
@@ -305,23 +324,24 @@ export interface GroceryGeneratorOptions {
   trainingSchedule?: WeeklyScheduleEntry[];
   substitutionRules?: { daysPerWeek: number; foodIds: string[] };
   riceCupGrams?: number;
+  additionalItems?: GroceryExtra[];
 }
 
 export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDiet, plan: WeeklyMealPlan, templates: MealTemplate[], inventory: InventoryItem[] = [], options: GroceryGeneratorOptions = {}) {
-  type Requirement = { key: string; foodId?: string; name: string; category: string; quantity: number; unit: string };
+  type Requirement = { key: string; foodId?: string; name: string; category: string; quantity: number; unit: string; notes?: string };
   const requirements = new Map<string, Requirement>();
   const byId = (id: string) => foods.find(food => food.id === id);
-  const add = (foodId: string | undefined, name: string, category: string, quantity: number, unit: string) => {
+  const add = (foodId: string | undefined, name: string, category: string, quantity: number, unit: string, notes?: string) => {
     if (quantity <= 0) return;
     const key = foodId ?? `name:${name}`;
     const existing = requirements.get(key);
-    requirements.set(key, existing ? { ...existing, quantity: existing.quantity + quantity } : { key, foodId, name, category, quantity, unit });
+    requirements.set(key, existing ? { ...existing, quantity: existing.quantity + quantity, notes: existing.notes ?? notes } : { key, foodId, name, category, quantity, unit, notes });
   };
   const effectiveHomeMeals = (day: WeeklyMealPlanDay) => Math.max(0, day.homeMeals - day.socialMeals);
   const homeDayFactor = plan.dayPlans.reduce((total, day) => total + effectiveHomeMeals(day) / 2, 0);
   const templateDays = plan.dayPlans.filter(day => effectiveHomeMeals(day) > 0 && day.templateId).map(day => ({ day, template: templates.find(template => template.id === day.templateId) })).filter((value): value is { day: WeeklyMealPlanDay; template: MealTemplate } => Boolean(value.template));
-  const templateFactor = templateDays.reduce((total, value) => total + effectiveHomeMeals(value.day) / 2, 0);
-  const standardFactor = Math.max(0, homeDayFactor - templateFactor);
+  const templateDayDates = new Set(templateDays.map(({ day }) => day.date));
+  const standardFactor = plan.dayPlans.reduce((total, day) => templateDayDates.has(day.date) ? total : total + effectiveHomeMeals(day) / 2, 0);
   const resolveFood = (ingredient: IngredientDetail) => {
     const normalized = ingredient.name.toLowerCase();
     return foods.find(item => normalized.includes(item.name.toLowerCase()) || item.name.toLowerCase().includes(normalized)) ?? (normalized.includes("米") ? byId("rice") : normalized.includes("鸡") ? byId("chicken-breast") : normalized.includes("三文鱼") ? byId("salmon") : undefined);
@@ -358,7 +378,7 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
   let substitutionIndex = 0;
   templateDays.forEach(({ day, template }) => {
     const index = plan.dayPlans.indexOf(day);
-    const factor = effectiveHomeMeals(day) / 2;
+    const factor = effectiveHomeMeals(day) / (template.portions ?? 2);
     const templateScale = day.templateScale ?? 1;
     addTemplateIngredient(template.rice, "碳水", factor, index, templateScale);
     template.hardyVeg.forEach(ingredient => addTemplateIngredient(ingredient, "蔬菜", factor, index, templateScale));
@@ -372,7 +392,6 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
     remainingFishDays = Math.max(0, remainingFishDays - appliedFishFactor);
     addTemplateIngredient(template.greenVeg, "蔬菜", factor, index, templateScale);
   });
-  const templateDayDates = new Set(templateDays.map(({ day }) => day.date));
   let standardChickenFactor = 0;
   plan.dayPlans.forEach(day => {
     if (templateDayDates.has(day.date)) return;
@@ -398,13 +417,14 @@ export function generateGroceryList(foods: FoodItem[], homeDiet: StandardHomeDie
   add("rice", "白米", "碳水", standardRiceQuantity, "g");
   add("vegetables", "混合蔬菜", "蔬菜", homeDiet.vegetableServings * standardFactor, "份");
   add("fruit", "水果", "水果", homeDiet.fruitServings * homeDayFactor, "份");
+  (options.additionalItems ?? []).filter(item => item.enabled !== false).forEach(item => add(undefined, item.name, item.category || "其他", item.quantity, item.unit || "份", item.notes));
   return Array.from(requirements.values()).map(requirement => {
     const food = requirement.foodId ? byId(requirement.foodId) : undefined;
     const available = inventory.filter(item => item.foodId === requirement.foodId && item.unit === requirement.unit).reduce((total, item) => total + item.quantity, 0);
     const toBuy = Math.max(0, requirement.quantity - available);
     const packSize = food?.shoppingPackSize && food.shoppingPackSize > 0 ? food.shoppingPackSize : 1;
     const packs = Math.ceil(toBuy / packSize);
-    return { id: uid("grocery"), foodId: requirement.foodId, category: requirement.category, name: requirement.name, required: Math.round(requirement.quantity * 10) / 10, unit: requirement.unit, purchase: toBuy > 0 ? `${packs} × ${food?.shoppingUnit ?? "按包装"}` : "库存充足", checked: false, available: Math.round(available * 10) / 10, toBuy: Math.round(toBuy * 10) / 10, notes: food?.notes };
+    return { id: uid("grocery"), foodId: requirement.foodId, category: requirement.category, name: requirement.name, required: Math.round(requirement.quantity * 10) / 10, unit: requirement.unit, purchase: toBuy > 0 ? `${packs} × ${food?.shoppingUnit ?? "按包装"}` : "库存充足", checked: false, available: Math.round(available * 10) / 10, toBuy: Math.round(toBuy * 10) / 10, notes: food?.notes ?? requirement.notes };
   });
 }
 
@@ -459,16 +479,18 @@ export function normalizeState(input: Partial<FitnessState>): FitnessState {
         daysPerWeek: substitutionDays,
         foodIds: substitutionFoodIds.length ? substitutionFoodIds : base.settings.proteinSubstitution.foodIds,
       },
+      riceCupPromptDismissed: rawSettings.riceCupPromptDismissed === true,
     },
     mealTemplates: input.mealTemplates?.length ? input.mealTemplates : base.mealTemplates,
     foods: Array.isArray(input.foods) ? input.foods.map(food => ({ ...(base.foods.find(defaultFood => defaultFood.id === food.id) ?? {}), ...food })) : base.foods,
     carbDayOverrides: { ...base.carbDayOverrides, ...(input.carbDayOverrides ?? {}) },
     standardHomeDiet: { ...base.standardHomeDiet, ...(input.standardHomeDiet ?? {}), fishSubstitutionDays: substitutionDays },
+    groceryExtras: Array.isArray(input.groceryExtras) ? input.groceryExtras : base.groceryExtras,
     reviewNotes: { ...base.reviewNotes, ...(input.reviewNotes ?? {}) },
     weeklyMealPlan: input.weeklyMealPlan?.dayPlans?.length ? input.weeklyMealPlan : base.weeklyMealPlan,
     inventory: input.inventory ?? base.inventory,
     strengthPrograms: input.strengthPrograms?.length ? input.strengthPrograms : base.strengthPrograms,
-    weeklySchedule: input.weeklySchedule?.length ? input.weeklySchedule : base.weeklySchedule,
+    weeklySchedule: input.weeklySchedule?.length ? migrateWeeklySchedule(input.weeklySchedule) : base.weeklySchedule,
   };
 }
 
@@ -655,6 +677,10 @@ export function addDays(dateKey: string, amount: number) {
 }
 export function daysBetween(start: string, end = today()) { return Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000)); }
 export function average(values: Array<number | undefined>) { const v = values.filter((n): n is number => typeof n === "number"); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : undefined; }
+/** Deterministic session load: duration multiplied by RPE, with a neutral estimate when RPE is missing. */
+export function trainingLoad(activity: Pick<ActivityEntry, "durationMin" | "rpe">) {
+  return Math.max(0, activity.durationMin) * (activity.rpe ?? 5);
+}
 export function rollingAverage<T extends { date: string }>(entries: T[], days: number, selector: (entry: T) => number | undefined, asOf = formatDate()) {
   const start = addDays(asOf, -days + 1);
   return average(entries.filter(entry => entry.date >= start && entry.date <= asOf).map(selector));
@@ -667,6 +693,16 @@ export function trendChange<T extends { date: string }>(entries: T[], days: numb
   const currentValue = current ? selector(current) : undefined;
   const baselineValue = baseline ? selector(baseline) : undefined;
   return currentValue !== undefined && baselineValue !== undefined ? currentValue - baselineValue : undefined;
+}
+
+/** Difference between the current rolling average and the preceding baseline window. */
+export function baselineDeviation<T extends { date: string }>(entries: T[], selector: (entry: T) => number | undefined, asOf = formatDate(), currentDays = 7, baselineDays = 28) {
+  const currentStart = addDays(asOf, -currentDays + 1);
+  const baselineEnd = addDays(currentStart, -1);
+  const baselineStart = addDays(baselineEnd, -baselineDays + 1);
+  const current = average(entries.filter(entry => entry.date >= currentStart && entry.date <= asOf).map(selector));
+  const baseline = average(entries.filter(entry => entry.date >= baselineStart && entry.date <= baselineEnd).map(selector));
+  return current !== undefined && baseline !== undefined ? current - baseline : undefined;
 }
 export function movingAverage(entries: BodyEntry[], days: number, asOf = formatDate()) { return rollingAverage(entries, days, entry => entry.weight, asOf); }
 
@@ -699,6 +735,7 @@ export interface ReviewSummary {
   };
   training: {
     completed: number; planned: number; adherence: number; extraSessions: number; totalDurationMin: number;
+    trainingLoad: number;
     strengthSessions: number; swimmingSessions: number; swimmingDistanceM: number;
     freestyleM: number; longestFreestyleM?: number; tennisSessions: number; tennisHours: number;
     boxingSessions: number; strengthProgression: Array<{ exercise: string; firstWeight?: number; latestWeight?: number; delta?: number; firstReps?: number; latestReps?: number }>;
@@ -706,6 +743,7 @@ export interface ReviewSummary {
   recovery: {
     averageSleep?: number; sleepTrend?: number; hrvTrend?: number; restingHrTrend?: number;
     whoopRecovery?: number; whoopStrain?: number; fatigue?: number; soreness?: number; motivation?: number; hunger?: number;
+    sleepBaselineDeviation?: number; hrvBaselineDeviation?: number; restingHrBaselineDeviation?: number; whoopRecoveryBaselineDeviation?: number;
   };
   nutrition: {
     days: number; caloriesAverage?: number; proteinAdherence: number; carbsAverage?: number; fatAverage?: number;
@@ -764,8 +802,8 @@ export function summarizeReview(state: FitnessState, start: string, end: string)
     period: { start, end, days: daysBetween(start, end) + 1 },
     phase: { id: state.settings.phase, label: phase.label, week: Math.min(phaseWeeks, Math.floor(daysBetween(state.settings.phaseStarted, end) / 7) + 1), totalWeeks: phaseWeeks },
     body: { averageWeight, weightTrend, weightRatePerWeek: weightRate, averageWaist, waistTrend: waistChange, averageBodyFat: average(body.map(entry => entry.bodyFat)), bodyFatTrend: rangeTrend(body, entry => entry.bodyFat) },
-    training: { completed, planned, adherence: planned ? Math.min(100, Math.round(completed / planned * 100)) : 0, extraSessions, totalDurationMin: activities.reduce((sum, activity) => sum + activity.durationMin, 0), strengthSessions: strengthActivities.length, swimmingSessions: activities.filter(activity => activity.type === "swimming").length, swimmingDistanceM: activities.filter(activity => activity.type === "swimming").reduce((sum, activity) => sum + (activity.distanceM ?? 0), 0), freestyleM: activities.filter(activity => activity.type === "swimming").reduce((sum, activity) => sum + (activity.freestyleM ?? 0), 0), longestFreestyleM: Math.max(0, ...activities.map(activity => activity.longestFreestyleM ?? 0)) || undefined, tennisSessions: activities.filter(activity => activity.type === "tennis").length, tennisHours: activities.filter(activity => activity.type === "tennis").reduce((sum, activity) => sum + activity.durationMin, 0) / 60, boxingSessions: activities.filter(activity => activity.type === "boxing").length, strengthProgression },
-    recovery: { averageSleep: average(recovery.map(entry => entry.sleepHours)), sleepTrend: rangeTrend(recovery, entry => entry.sleepHours), hrvTrend: rangeTrend(recovery, entry => entry.hrv), restingHrTrend: rangeTrend(recovery, entry => entry.restingHr), whoopRecovery: average(recovery.map(entry => entry.whoopRecovery)), whoopStrain: average(recovery.map(entry => entry.whoopStrain)), fatigue: average(recovery.map(entry => entry.fatigue)), soreness: average(recovery.map(entry => entry.soreness)), motivation: average(recovery.map(entry => entry.motivation)), hunger: average(recovery.map(entry => entry.hunger)) },
+    training: { completed, planned, adherence: planned ? Math.min(100, Math.round(completed / planned * 100)) : 0, extraSessions, totalDurationMin: activities.reduce((sum, activity) => sum + activity.durationMin, 0), trainingLoad: Math.round(activities.reduce((sum, activity) => sum + trainingLoad(activity), 0)), strengthSessions: strengthActivities.length, swimmingSessions: activities.filter(activity => activity.type === "swimming").length, swimmingDistanceM: activities.filter(activity => activity.type === "swimming").reduce((sum, activity) => sum + (activity.distanceM ?? 0), 0), freestyleM: activities.filter(activity => activity.type === "swimming").reduce((sum, activity) => sum + (activity.freestyleM ?? 0), 0), longestFreestyleM: Math.max(0, ...activities.map(activity => activity.longestFreestyleM ?? 0)) || undefined, tennisSessions: activities.filter(activity => activity.type === "tennis").length, tennisHours: activities.filter(activity => activity.type === "tennis").reduce((sum, activity) => sum + activity.durationMin, 0) / 60, boxingSessions: activities.filter(activity => activity.type === "boxing").length, strengthProgression },
+    recovery: { averageSleep: average(recovery.map(entry => entry.sleepHours)), sleepTrend: rangeTrend(recovery, entry => entry.sleepHours), hrvTrend: rangeTrend(recovery, entry => entry.hrv), restingHrTrend: rangeTrend(recovery, entry => entry.restingHr), whoopRecovery: average(recovery.map(entry => entry.whoopRecovery)), whoopStrain: average(recovery.map(entry => entry.whoopStrain)), fatigue: average(recovery.map(entry => entry.fatigue)), soreness: average(recovery.map(entry => entry.soreness)), motivation: average(recovery.map(entry => entry.motivation)), hunger: average(recovery.map(entry => entry.hunger)), sleepBaselineDeviation: baselineDeviation(state.recovery, entry => entry.sleepHours, end), hrvBaselineDeviation: baselineDeviation(state.recovery, entry => entry.hrv, end), restingHrBaselineDeviation: baselineDeviation(state.recovery, entry => entry.restingHr, end), whoopRecoveryBaselineDeviation: baselineDeviation(state.recovery, entry => entry.whoopRecovery, end) },
     nutrition: { days: nutrition.length, caloriesAverage: avgCalories, proteinAdherence: nutrition.length ? Math.round(nutrition.filter(entry => (entry.protein ?? 0) >= targetProtein).length / nutrition.length * 100) : 0, carbsAverage: average(nutrition.map(entry => entry.carbs)), fatAverage: average(nutrition.map(entry => entry.fat)), carbDayDistribution, fruitAdherence: nutrition.length ? Math.round(nutrition.filter(entry => (entry.fruitServings ?? 0) >= targetFruit).length / nutrition.length * 100) : 0, vegetableAdherence: nutrition.length ? Math.round(nutrition.filter(entry => (entry.vegetableServings ?? 0) >= targetVegetables).length / nutrition.length * 100) : 0, socialMeals: nutrition.filter(entry => Boolean(entry.socialMeal)).length, hungerTrend: rangeTrend(recovery, entry => entry.hunger) },
     calibration: { weightRatePerWeek: weightRate, waistChange, intakeWeightRelationship },
   };
