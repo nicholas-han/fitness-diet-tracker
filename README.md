@@ -21,19 +21,64 @@
 
 ## 本地运行
 
-需要 Node.js 20+ 和 Corepack。开发模式会启动一个本地 Express + Vite 服务，数据写入仓库内的 `personal-data/fitness-os.json`；该目录已被 Git 忽略，不需要账号、数据库或外网连接。
+需要 Node.js 20+ 和 Corepack。如果希望数据写入仓库本地文件，必须使用开发模式：它会启动本地 Express + Vite 服务，并将数据写入 `personal-data/fitness-os.json`。该目录已被 Git 忽略，不需要账号、数据库或外网连接。
 
 ```bash
+# 首次安装（只需执行一次）
 corepack enable
 corepack pnpm install --frozen-lockfile
+
+# 以后每次启动本地应用
 corepack pnpm dev
 ```
 
-默认访问地址为 `http://localhost:3000`。如果端口被占用，服务会自动选择 3000 之后的可用端口并在终端打印实际地址。也可以使用 `corepack pnpm build` 生成静态前端资源；静态托管没有仓库文件写入能力，会退回浏览器 `localStorage`，本地开发推荐使用 `pnpm dev`。
+默认访问地址为 `http://localhost:3000`。如果端口被占用，服务会自动选择 3000 之后的可用端口并在终端打印实际地址。
+
+`corepack pnpm build` + `corepack pnpm start` 用于测试生产构建；生产模式不开放本地文件 API，不会写入 `personal-data/fitness-os.json`，数据会退回浏览器 `localStorage`。日常本地使用请运行 `corepack pnpm dev`。
 
 ## 数据与隐私
 
-运动记录、饮食记录、设置和购物历史存储在 `personal-data/fitness-os.json`，只由本机 API 读写，不会自动上传。请在 **Settings → Export All Data** 创建 JSON 备份；JSON 是 canonical backup，可在另一台设备导入。仓库也忽略以下本地内容：
+### 存储位置与优先级
+
+开发模式下，运动记录、饮食记录、设置和购物历史的主数据源是 `personal-data/fitness-os.json`，只由本机 API 读写，不会自动上传。默认数据目录也可以通过 `FITNESS_DATA_DIR` 环境变量覆盖。
+
+浏览器还会在 `localStorage` 中保留同一份状态副本，键名为 `personal-fitness-os:v1`，用于启动时的快速加载和本地 API 不可用时的回退。开发模式会按 `updatedAt` 选择较新的副本，并将修改同步到文件和浏览器。Settings 页显示“已连接到本地文件存储”时，表示当前已连接文件 API。
+
+可以直接检查文件内容：
+
+```bash
+jq . personal-data/fitness-os.json
+```
+
+### JSON 数据格式
+
+训练和饮食共用一个版本化的 JSON 状态对象，不会拆成两个文件：
+
+```json
+{
+  "version": 1,
+  "updatedAt": "2026-09-02T10:00:00.000Z",
+  "settings": {},
+  "activities": [],
+  "body": [],
+  "recovery": [],
+  "nutrition": [],
+  "carbDayOverrides": {},
+  "grocery": [],
+  "groceryHistory": [],
+  "groceryExtras": [],
+  "mealTemplates": [],
+  "foods": [],
+  "standardHomeDiet": {},
+  "weeklyMealPlan": {},
+  "inventory": [],
+  "strengthPrograms": [],
+  "weeklySchedule": [],
+  "reviewNotes": {}
+}
+```
+
+其中 `activities` 是训练/运动记录，`body` 是体重和身体指标，`recovery` 是恢复指标，`nutrition` 是每日饮食和宏量营养记录；其余字段保存设置、模板、周计划、食物目录和购物数据。文件是格式化 JSON，浏览器副本使用相同的数据结构。请在 **Settings → Export All Data** 创建 JSON 备份；该备份是 canonical backup，可在另一台设备导入。仓库也忽略以下本地内容：
 
 - `.env` 和各环境的密钥配置
 - `data/`、`personal-data/`、`exports/`、`backups/`
